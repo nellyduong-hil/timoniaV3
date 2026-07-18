@@ -1,4 +1,4 @@
-# Home in Love — Démo cliquable
+# Timonia — Démo cliquable
 Déployer sur GitHub Pages : pousser ce dossier tel quel (index.html à la racine du repo, branche main, Settings → Pages).
 Parcours démo :
 1. index.html → landing. « Mon espace » exige une connexion.
