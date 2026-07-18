@@ -2,583 +2,621 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Mon espace — Timonia (v3)</title>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
-<script src="timonia-config.js"></script>
-<script src="timonia-demo-data.js"></script>
+<title>Fiche Client — Timonia OS (v2.3)</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+<script>
+/* config v2.3 — INLINE */
+/* ═══════════════════════════════════════════════════════════════════════════
+   TIMONIA — SOURCE UNIQUE DE VÉRITÉ  (référentiel v2.1 exécutable)
+   ---------------------------------------------------------------------------
+   Ce fichier est la SEULE définition du modèle métier. Les 3 dashboards
+   (client, partner mandataire/admin, fiche dossier) le chargent et le lisent —
+   ils ne redéfinissent JAMAIS étapes, types, tarifs ni barème en local.
+   → C'est la règle §7 du référentiel : « un module de config partagé ».
+
+   Chargement (script classique, compatible file://) :
+     <script src="timonia-config.js"><\/script>
+   puis utiliser  window.T  ci-dessous.
+═══════════════════════════════════════════════════════════════════════════ */
+(function (global) {
+
+  /* ── 1. PIPELINE UNIQUE — 7 ÉTAPES ─────────────────────────────────────
+     UNE seule liste d'étapes pour TOUS les types de projet.
+     Le type de projet n'est qu'un filtre / tag, jamais un pipeline séparé.
+     bloc = quel bloc CLIENT s'active (0 = amont/qualif, hors bloc). */
+  var PIPELINE = [
+    { n:'01', key:'nouveaux_inscrits', mand:'Nouveaux inscrits',                          client:'Conseil Flash',            bloc:0,
+      desc:"Lead entrant — vérifier la recevabilité de la demande et prendre contact sous 24 h." },
+    { n:'02', key:'relance_qualif',    mand:'Relance · Appel qualif fixé',                client:'Conseil Flash',            bloc:0,
+      desc:"Relance du prospect et prise de RDV pour le Conseil Flash (15 min offert)." },
+    { n:'03', key:'qualif_fait',       mand:'Appel qualif fait · Devis audit envoyé',     client:'Conseil Flash',            bloc:0,
+      desc:"Conseil Flash réalisé, situation qualifiée, objectifs formalisés. Devis d'audit envoyé." },
+    { n:'04', key:'audit_cours',       mand:'Audit en cours',                             client:'Audit stratégique',        bloc:1,
+      desc:"Déclenché après paiement du forfait Bloc 1." },
+    { n:'05', key:'audit_livre',       mand:'Audit livré & facturé · Devis mise en œuvre envoyé', client:'Audit stratégique', bloc:1,
+      desc:"Livrable remis, audit facturé, devis de mise en œuvre envoyé. SAISIE OBLIGATOIRE de la variable du bien avant de passer en mise en œuvre." },
+    { n:'06', key:'oeuvre',            mand:'Mise en œuvre opérationnelle',               client:'Mise en œuvre',            bloc:2,
+      desc:"Mandat de délégation totale signé. Phase terrain (recherche, coordination des artisans, urbanisme). L'acompte (Rénovation) et la facturation intermédiaire s'émettent depuis l'onglet Facturation, à la main." },
+    { n:'07', key:'finalisation',      mand:'Finalisation & livraison',                   client:'Finalisation & livraison', bloc:3,
+      desc:"Signature notaire / réception des travaux par le client / remise des clés. Émission de la facture du solde final." },
+    { n:'08', key:'archive',           mand:'Projet finalisé · Devis prochaine étape envoyé', client:'Projet livré',         bloc:3,
+      desc:"Clôture (gagné). Devis de la prochaine étape envoyé. Déclenche le CTA client « Prêt pour la prochaine étape avec Timonia ? »." },
+  ];
+
+  /* ── 1B. PIPELINE B2B — PRESCRIPTEURS (apporteurs d'affaires) ─────────────
+     Pipeline séparé du parcours client : agences, notaires, courtiers, syndics…
+     qui recommandent Timonia. 6 étapes fixes, indépendantes du pipeline BtoC. */
+  var PRESCRIPTEUR_PIPELINE = [
+    { n:'1', key:'nouveau',    label:'Nouveaux prospects',     color:'#94A3B8' },
+    { n:'2', key:'prospect',   label:'Prospects',              color:'#7F77DD' },
+    { n:'3', key:'contact',    label:'1er contact établi',      color:'#378ADD' },
+    { n:'4', key:'demo',       label:'Démo',                    color:'#EDA100' },
+    { n:'5', key:'interesse',  label:'Intéressé',                color:'#FF8352' },
+    { n:'6', key:'signe',      label:'Partenariat signé',        color:'#5FA694' },
+  ];
+  var PRESC_SECTEURS = ['Agence immobilière','Notaire','Courtier en travaux','Syndic','Banque / Courtier crédit','Autre'];
+
+  /* ── 2. LES 3 BLOCS CLIENT ──────────────────────────────────────────────
+     Synchro : étape 02-03 → Bloc 1 · 04-05 → Bloc 2 · 06-07 → Bloc 3. */
+  var BLOCS = [
+    { id:1, title:'Audit Stratégique',        etapes:['04','05'], color:'#378ADD', bg:'#E6F1FB', fg:'#185FA5' },
+    { id:2, title:'Mise en Œuvre',            etapes:['06'],      color:'#E8833A', bg:'#FCEEE1', fg:'#993C1D' },
+    { id:3, title:'Finalisation & Livraison', etapes:['07','08'], color:'#5FA694', bg:'#E1F5EE', fg:'#0F6E56' },
+  ];
+
+  /* ── 3. LES 5 TYPES DE PROJET ───────────────────────────────────────────
+     bloc1            = forfait audit TTC (encaissé au départ)
+     variable         = donnée du bien à saisir à l'étape 03 (bloque 03→04 si null-requis)
+     acompte_autorise = un acompte Bloc 2 est légalement possible (Rénovation seule)
+     solde            = comment se calcule le solde du Bloc 3
+       - forfait : montant fixe (honoraires « en sus », audit NON déduit)
+       - pct     : base(réel) × taux %  (− acompte déjà versé si acompte_autorise)
+     ⚠️ SIMPLIFICATION 2.1 : plus AUCUNE déduction du Bloc 1 pour Mise en
+        location / Mise en vente (source d'erreur supprimée). audit_deductible=false partout. */
+  var TYPES = {
+    'recherche-location': {
+      label:'Recherche location', short:'🔑 Recherche loc.', icon:'🔑', color:'#1e63f0',
+      livrable:'Votre Feuille de Route Locative',
+      bloc1:149, audit_deductible:false, acompte_autorise:false,
+      variable:null,
+      solde:{ mode:'forfait', montant:2220, label:'Forfait 2 220 € TTC' } },
+    'recherche-achat': {
+      label:'Recherche achat', short:'🏠 Recherche achat', icon:'🏠', color:'#0ba592',
+      livrable:"Votre Rapport d'Expertise Vénale et Foncière",
+      bloc1:790, audit_deductible:false, acompte_autorise:false,
+      variable:null,
+      solde:{ mode:'forfait', montant:9900, label:'Forfait 9 900 € TTC' } },
+    'mise-location': {
+      label:'Mise en location', short:'📋 Mise en loc.', icon:'📋', color:'#7F77DD',
+      livrable:"Votre Rapport d'Ingénierie Locative",
+      bloc1:490, audit_deductible:false, acompte_autorise:false,
+      variable:{ key:'surface', label:'Surface', unit:'m²', reelLabel:'Surface réelle', bloc3:false },
+      solde:{ mode:'pct', taux:13, base:'surface', unitaire:true, label:'Surface m² × 13 €' } },
+    'mise-vente': {
+      label:'Mise en vente', short:'🏷️ Mise en vente', icon:'🏷️', color:'#EDA100',
+      livrable:"Votre Rapport d'Expertise Vénale et Foncière",
+      bloc1:790, audit_deductible:false, acompte_autorise:false,
+      variable:{ key:'prix', label:'Prix estimé', unit:'€', reelLabel:'Prix réel acté', bloc3:true },
+      solde:{ mode:'pct', taux:5, base:'prix', label:'Prix réel acté × 5 %' } },
+    'renovation': {
+      label:'Rénovation', short:'🔧 Rénovation', icon:'🔧', color:'#E24B4A',
+      livrable:'Votre Plan de Vol de Rénovation Énergétique et Technique',
+      bloc1:2200, audit_deductible:false, acompte_autorise:true,
+      variable:{ key:'travaux', label:'Montant estimé des travaux', unit:'€', reelLabel:'Montant réel final des travaux', bloc3:true },
+      solde:{ mode:'pct', taux:10, base:'travaux', label:'Travaux réels × 10 % − acompte versé' } },
+  };
+  var TYPE_ORDER = ['recherche-location','recherche-achat','mise-location','mise-vente','renovation'];
+
+  /* ── 4. RÔLES & COMMISSION ──────────────────────────────────────────────
+     roleCompte  ∈ client · mandataire · manager · admin   (droits)
+     specialite  ∈ lead · sale · front · back              (barème commission)
+     commission = %rôle × (TTC encaissé ÷ 1,20)  · total mandataires 60 % · siège 40 %. */
+  var TVA = 1.20;
+  var BAREME = { lead:10, sale:10, front:20, back:20 };   // Σ = 60 %  → siège 40 %
+  var PLAFOND_MANDATAIRES = 60;
+  var ROLE_LABELS = { lead:'Lead', sale:'Sale', front:'Front', back:'Back', manager:'Manager' };
+  var ROLE_DESC   = { lead:'Commercial B2B', sale:'Commercial B2C', front:'Agent terrain', back:'Agent bureau', manager:'Encadrement d\'équipe' };
+  var ROLE_COLORS = { lead:'#378ADD', sale:'#5FA694', front:'#FF8352', back:'#7F77DD', manager:'#EDA100' };
+  var MANAGER_PLAFOND_PCT = 5; // % max, réglable par manager, prélevé sur la part siège (jamais sur ses propres dossiers)
+
+  /* ── 5. FACTURE — objet indépendant du pipeline ─────────────────────────
+     Un dossier a 0 à 3 factures (bloc 1 / bloc 2 acompte / bloc 3 solde).
+     Machine à états. Le mandataire peut proposer/corriger un montant ; il part
+     alors en « à valider » (manager/admin) avant d'être émis au client. */
+  var FACTURE_STATUTS = {
+    demande: { label:'À émettre (demandée)', cls:'bo', desc:"Émission demandée par le mandataire — attend l'émission par l'admin." },
+    emise:   { label:'Émise',                cls:'bb', desc:'Facture émise et uploadée par l\'admin. Commission GELÉE (taux + montant figés).' },
+    payee:   { label:'Payée',                cls:'bg', desc:'Encaissée. Commission exigible → versable au mandataire.' },
+  };
+
+  /* ── 6. STATUT DOSSIER (distinct de l'étape) ────────────────────────────── */
+  var DOSSIER_STATUTS = {
+    en_cours: { label:'En cours',           cls:'bb' },
+    cloture:  { label:'Clôturé (gagné)',    cls:'bg' },   // étape 07
+    abandonne:{ label:'Abandonné (perdu)',  cls:'br' },
+  };
+
+  /* ── HELPERS ─────────────────────────────────────────────────────────── */
+  function etape(n){ return PIPELINE.find(function(e){return e.n===n;}); }
+  function etapeIndex(n){ return PIPELINE.findIndex(function(e){return e.n===n;}); }
+  function blocForEtape(n){ var e=etape(n); if(!e||!e.bloc) return null; return BLOCS.find(function(b){return b.id===e.bloc;}); }
+  function type(k){ return TYPES[k]||null; }
+  function livrableFor(k){ var t=TYPES[k]; return t?t.livrable:'Votre livrable'; }
+
+  /* commission HT figée pour un rôle sur un montant TTC encaissé */
+  function commission(role, montantTTC){
+    var pct = BAREME[role]||0;
+    return Math.round(pct/100 * ((+montantTTC||0)/TVA));
+  }
+  /* commission HT du manager sur l'équipe (% réglable 0-5, prélevé sur la part siège) */
+  function commissionManager(teamPct, montantTTC){
+    var pct = Math.max(0, Math.min(MANAGER_PLAFOND_PCT, +teamPct||0));
+    return Math.round(pct/100 * ((+montantTTC||0)/TVA));
+  }
+  function totalPct(pctObj){ return ['lead','sale','front','back'].reduce(function(s,r){return s+(+(pctObj&&pctObj[r])||0);},0); }
+  function pctSiege(pctObj){ return 100 - totalPct(pctObj); }
+
+  /* Solde du Bloc 3 selon le type, la valeur réelle saisie et l'acompte versé.
+     valeurReelle = m² réels / prix acté / travaux réels ; acompteVerse en € TTC. */
+  function soldeBloc3(typeKey, valeurReelle, acompteVerse){
+    var t = TYPES[typeKey]; if(!t) return 0;
+    var s = t.solde, v = +valeurReelle||0, ac = +acompteVerse||0;
+    if(s.mode==='forfait') return s.montant;
+    if(s.mode==='pct'){
+      var brut = s.unitaire ? v*s.taux : v*(s.taux/100);   // ×13€ (unitaire) vs ×5%/×8%
+      return Math.max(0, Math.round(brut - ac));           // garde-fou anti-solde négatif
+    }
+    return 0;
+  }
+
+  /* Champ variable obligatoire à saisir à l'étape 03 (bloque 03→04). null si aucun. */
+  function variableEtape03(typeKey){ var t=TYPES[typeKey]; return (t&&t.variable)?t.variable:null; }
+
+
+  /* ── PLAN DE VOL — sous-missions par étape (source unique) ────────────────
+     PLAN_COMMON : étapes 01-05 et 07-08, communes à tous les types.
+     PLAN_TERRAIN : étape 06 (mise en œuvre), spécifique au type de projet.
+     Déplacé depuis la vue Dossier — les vues ne redéfinissent plus ces listes. */
+  var PLAN_COMMON={
+  '01':[{id:'e1a',label:'Vérifier la recevabilité de la demande',resp:'cabinet'},{id:'e1b',label:'Premier contact sous 24 h',resp:'cabinet'}],
+  '02':[{id:'e2a',label:'Relancer le prospect',resp:'cabinet'},{id:'e2b',label:'Fixer le RDV Conseil Flash (15 min offert)',resp:'cabinet'}],
+  '03':[{id:'e3a',label:'Réaliser le Conseil Flash',resp:'cabinet'},{id:'e3b',label:'Qualifier la situation et formaliser les objectifs',resp:'cabinet'},{id:'e3c',label:"Établir et envoyer le devis d'audit",resp:'cabinet'}],
+  '04':[{id:'e4z1',label:"Réaliser l'audit (technique / énergétique / marché)",resp:'cabinet'},{id:'e4z2',label:'Vérifier l\'éligibilité aux aides',resp:'cabinet'},{id:'e4z3',label:'Collecter les pièces & justificatifs',resp:'client'}],
+  '05':[{id:'e5a',label:'Rédiger et remettre le livrable au client',resp:'cabinet',doc:true},{id:'e5v',label:'⭐ Saisir la donnée obligatoire du bien',resp:'cabinet',gateVar:true},{id:'e5b',label:'Envoyer le devis de mise en œuvre',resp:'client'}],
+  '07':[{id:'e8a',label:'Signature notaire / réception par le client / remise des clés',resp:'client'},{id:'e8r',label:'⭐ Saisir le montant réel (régularisation du solde)',resp:'cabinet',gateReel:true},{id:'e8b',label:'Émettre la facture du solde final (onglet Facturation)',resp:'cabinet'}],
+  '08':[{id:'e9a',label:'Archiver le dossier',resp:'cabinet'},{id:'e9b',label:'Envoyer le devis de la prochaine étape',resp:'cabinet'}],
+  };
+  var PLAN_TERRAIN={
+  'recherche-location':[{id:'e4a',label:'Préparer le dossier locataire',resp:'cabinet'},{id:'e4b',label:'Rechercher les biens & déposer les candidatures',resp:'cabinet'},{id:'e4c',label:'Organiser les visites',resp:'cabinet'},{id:'e4d',label:'Retour client post-visite',resp:'client'}],
+  'recherche-achat':[{id:'e4a',label:'Sourcer les biens à fort potentiel',resp:'cabinet'},{id:'e4b',label:'Visites avec focus technique',resp:'cabinet'},{id:'e4c',label:'Montage du financement',resp:'partenaire'},{id:'e4d',label:"Offre d'achat & négociation",resp:'cabinet'}],
+  'mise-location':[{id:'e4a',label:"Rédiger l'annonce & photos",resp:'cabinet'},{id:'e4b',label:'Publier & gérer les candidatures',resp:'cabinet'},{id:'e4c',label:'Sélection des candidats & visites',resp:'cabinet'}],
+  'mise-vente':[{id:'e4a',label:"Rédiger l'annonce & diagnostics",resp:'cabinet'},{id:'e4b',label:'Publier & organiser les visites',resp:'cabinet'},{id:'e4c',label:'Réception & analyse des offres',resp:'cabinet'}],
+  'renovation':[{id:'e4a',label:'Mise en concurrence des artisans (courtage travaux)',resp:'cabinet'},{id:'e4b',label:'Obtention et validation des devis',resp:'cabinet'},{id:'e4c',label:'Sélection des prestataires',resp:'client'},{id:'e4d',label:'Coordination & mise en relation des artisans',resp:'cabinet'}],
+  };
+
+  /* ── TRANSITIONS — moteur du pipeline ──────────────────────────────────────
+     Chaque passage d'étape est déclenché par un ÉVÉNEMENT, pas par le mandataire.
+     mode 'auto'   : le système avance seul (paiement, validation client, plan complet).
+     mode 'manuel' : le mandataire enregistre un fait réel PROUVÉ (horodatage + récap).
+     → 5 transitions auto / 7. Le clic du client fait avancer le dossier. */
+  var TRANSITIONS = [
+    { from:'01', to:'02', mode:'manuel', event:'contact.effectue',    label:'Premier contact enregistré',
+      preuve:{ requis:['ts_appel','canal'], optionnel:['compte_rendu'],
+               note:'Date/heure + canal obligatoires. Récap facultatif.' } },
+    { from:'02', to:'03', mode:'manuel', event:'conseil_flash.fait',  label:'Conseil Flash réalisé — le devis d\u2019audit part automatiquement',
+      preuve:{ requis:['ts_appel','compte_rendu'], optionnel:['duree','enregistrement'],
+               note:'Compte-rendu obligatoire (rédigé ou généré par IA depuis les notes/l\u2019enregistrement).',
+               ia_prefill:['situation','objectif_bullets'],
+               ia_note:'Le récap IA pré-remplit Situation et Objectifs du dossier — zéro double saisie.' },
+      v2:'Téléphonie intégrée (Aircall/Ringover) : appel + transcript IA automatiques → transition 100 % auto.' },
+    { from:'03', to:'04', mode:'auto',   event:'paiement.audit',      label:'Paiement du Bloc 1 reçu (webhook paiement)' },
+    { from:'04', to:'05', mode:'auto',   event:'client.audit_valide', label:'Audit validé par le client dans monespace',
+      prerequis:'livrable.remis', prerequisLabel:'Livrable d\u2019audit déposé par le mandataire (notifie le client)',
+      effets:['facture.audit.emise','devis.oeuvre.emis'],
+      effetsLabel:'La validation émet automatiquement la facture d\u2019audit ET le devis de mise en œuvre',
+      relances:{jours:[3,7], puis:'signal_rouge',
+        note:'Sans validation : relances client automatiques J+3 et J+7, puis signal rouge sur la fiche client. Jamais de validation automatique silencieuse.'} },
+    { from:'05', to:'06', mode:'auto',   event:'client.devis_valide', label:'Devis de mise en œuvre validé par le client dans monespace',
+      garde:'variable_bien_saisie', gardeLabel:'Variable du bien saisie (blocage sinon)' },
+    { from:'06', to:'07', mode:'auto',   event:'planvol.complet',     label:'100 % des sous-missions terrain (étape 06) réalisées' },
+    { from:'07', to:'08', mode:'auto',   event:'paiement.solde',      label:'Facture de solde payée — clôture automatique' },
+  ];
+  function transitionFrom(n){ return TRANSITIONS.find(function(t){return t.from===n;})||null; }
+
+  global.T = {
+    PIPELINE, BLOCS, TYPES, TYPE_ORDER, TVA, BAREME, PLAFOND_MANDATAIRES, MANAGER_PLAFOND_PCT,
+    ROLE_LABELS, ROLE_DESC, ROLE_COLORS, FACTURE_STATUTS, DOSSIER_STATUTS,
+    PRESCRIPTEUR_PIPELINE, PRESC_SECTEURS,
+    PLAN_COMMON, PLAN_TERRAIN, TRANSITIONS, transitionFrom,
+    etape, etapeIndex, blocForEtape, type, livrableFor,
+    commission, commissionManager, totalPct, pctSiege, soldeBloc3, variableEtape03,
+    VERSION: '2.3',
+  };
+})(window);
+
+</script>
+<script>
+/* demo-data — INLINE */
+/* ═══════════════════════════════════════════════════════════════════════════
+   TIMONIA — DONNÉES DÉMO PARTAGÉES (un seul jeu pour tous les écrans)
+   ---------------------------------------------------------------------------
+   Chargé APRÈS timonia-config.js :
+     <script src="timonia-config.js"><\/script>
+     <script src="timonia-demo-data.js"><\/script>
+   Expose window.TDATA = { MANDATAIRES, DOSSIERS }.
+   → Remplace les tableaux dupliqués dans chaque dashboard (source de bugs).
+   En production, ces données viendront de l'API ; ce fichier est le contrat.
+═══════════════════════════════════════════════════════════════════════════ */
+(function (global) {
+
+  /* Comptes (roleCompte = droits · spec = barème commission) */
+  var MANDATAIRES = [
+    {trig:'CG1',nom:'Clara Guerin', color:'#FF8352',roleCompte:'mandataire',spec:'front',zone:'Lyon · Rhône',    actif:true, email:'cg@timonia.fr',   date_inscription:'2023-11-02',tel:'06 71 20 33 14'},
+    {trig:'SL1',nom:'Sophie Leroux',color:'#378ADD',roleCompte:'manager',   spec:'lead', zone:'Rhône · Ain',    actif:true, email:'sl@timonia.fr',   date_inscription:'2023-09-15',tel:'06 62 45 18 07',equipe:['CG1','AM1'],teamPct:5},
+    {trig:'AM1',nom:'Axel Martin',  color:'#5FA694',roleCompte:'mandataire',spec:'sale', zone:'Lyon métropole', actif:true, email:'am@timonia.fr',   date_inscription:'2023-12-01',tel:'06 88 09 51 42'},
+    {trig:'RP1',nom:'Remi Payet',   color:'#7F77DD',roleCompte:'mandataire',spec:'back', zone:'National',       actif:true, email:'rp@timonia.fr',   date_inscription:'2024-01-10',tel:'06 14 77 26 90'},
+    {trig:'ND1',nom:'Nelly Duong',  color:'#5FA694',roleCompte:'admin',     spec:null,   zone:'Siège',          actif:true, email:'admin@demo.fr',  date_inscription:'2023-06-01',tel:null},
+    {trig:null, nom:'Lucas Bernard',color:'#EDA100',roleCompte:'mandataire',spec:null,   zone:null,             actif:false,email:'lucas@gmail.com', date_inscription:'2024-03-18',tel:null},
+    {trig:null, nom:'Marie Torres', color:'#E24B4A',roleCompte:'mandataire',spec:null,   zone:null,             actif:false,email:'marie@outlook.fr',date_inscription:'2024-03-20',tel:null},
+  ];
+
+  /* Dossiers — modèle unique aligné sur la config.
+     factures : objets indépendants { bloc, kind, montant, statut, ts }
+       statut ∈ demande (demandée par le mandataire) · emise (émise par l'admin) · payee
+       ts     = date de référence de la facture (demande, puis émission) — ISO */
+  var DOSSIERS = [
+    {id:'D001',clientId:'C001',ref:'TIM-2024-087',nom:'M. Bernard Chaumont',email:'b.chaumont@gmail.com',tel:'06 12 34 56 78',
+     type:'renovation',etape:'06',statut:'en_cours',created:'2024-01-03',
+     equipe:{lead:'SL1',sale:'AM1',front:'CG1',back:'RP1'},pct:{lead:10,sale:10,front:20,back:20},
+     situation:"Locataire impayé 14 mois. DPE-F bloquant. Succession en cours.",
+     objectif_bullets:["Récupérer le bien (procédure impayés)","Rénover pour passer du DPE F au DPE C","Remettre en location à ~900 €/mois"],
+     variables:{travaux:24800,travauxReel:null},
+     client:{statut:'Propriétaire bailleur',adresse:'24 rue de la Paix, 69003 Lyon',canal:'Téléphone (matin)',dernier_contact:'18 mars 2024'},
+     bien:{adresse:'14 rue Pasteur, 69007 Lyon',type:'Appartement T3',surface:'62 m²',dpe:'F — 342 kWh/m².an',valeur:'185 000 € (2023)',loyer:'620 €/mois (sous-évalué)'},
+     factures:[{bloc:1,kind:'audit',montant:2200,statut:'payee',ts:'2024-02-15T10:12:00'},{bloc:2,kind:'acompte',montant:1240,statut:'emise',ts:'2024-03-10T09:30:00'}],
+     messages_pub:[{from:'client',nom:'M. Chaumont',text:"Bonjour, j'ai des questions sur les devis.",ts:'2024-03-18T11:42:00'}],
+     messages_priv:[{from:'admin',nom:'Nelly D.',text:'Dossier prioritaire.',ts:'2024-03-15T09:00:00'}],
+     photos:[{date:'28 fév. 2024',caption:'État initial du logement avant travaux'},{date:'12 mars 2024',caption:'Coordination artisans — isolation par l\'extérieur'}],
+     docs:[{name:"Rapport d'audit complet",type:'PDF',cat:'info'},{name:'Devis artisans × 3 (RGE)',type:'PDF',cat:'valid',status:'attente'},{name:'Facture Audit — 2 200 €',type:'PDF',cat:'valid',status:'valide'}]},
+
+    {id:'D002',clientId:'C002',ref:'TIM-2024-095',nom:'Mme Fatou Diallo',email:'f.diallo@gmail.com',tel:'06 22 33 44 55',
+     type:'renovation',etape:'04',statut:'en_cours',created:'2024-01-15',
+     equipe:{lead:'SL1',sale:null,front:'CG1',back:null},pct:{lead:10,sale:0,front:20,back:0},
+     situation:"Rénovation énergétique complète. DPE-G.",objectif_bullets:["Passer en DPE-C et remettre en location"],
+     variables:{travaux:null,travauxReel:null},
+     factures:[{bloc:1,kind:'audit',montant:2200,statut:'emise',ts:'2024-02-02T09:00:00'}],
+     messages_pub:[],messages_priv:[],photos:[],docs:[]},
+
+    {id:'D003',clientId:'C003',ref:'TIM-2024-101',nom:'Mme Sylvie Morel',email:'s.morel@gmail.com',tel:'06 33 44 55 66',
+     type:'recherche-location',etape:'01',statut:'en_cours',created:'2024-03-28',
+     equipe:{lead:null,sale:'AM1',front:null,back:null},pct:{lead:0,sale:10,front:0,back:0},
+     situation:"Recherche T2/T3 Lyon 7e, budget 850 €/mois.",objectif_bullets:["Trouver et sécuriser un logement avant septembre 2024"],
+     variables:{},factures:[],messages_pub:[],messages_priv:[],photos:[],docs:[]},
+
+    {id:'D004',clientId:'C004',ref:'TIM-2024-100',nom:'M. Karim Benali',email:'k.benali@gmail.com',tel:'06 44 55 66 77',
+     type:'recherche-location',etape:'02',statut:'en_cours',created:'2024-03-26',
+     equipe:{lead:'SL1',sale:null,front:null,back:null},pct:{lead:10,sale:0,front:0,back:0},
+     situation:"Recherche location Lyon 6e.",objectif_bullets:["Trouver un logement rapidement"],
+     variables:{},factures:[],messages_pub:[],messages_priv:[],photos:[],docs:[]},
+
+    {id:'D005',clientId:'C005',ref:'TIM-2024-096',nom:'M. Omar Traore',email:'o.traore@gmail.com',tel:'06 55 66 77 88',
+     type:'recherche-achat',etape:'04',statut:'en_cours',created:'2024-03-25',
+     equipe:{lead:'SL1',sale:'AM1',front:null,back:null},pct:{lead:10,sale:10,front:0,back:0},
+     situation:"Achat investissement Lyon.",objectif_bullets:["Rendement locatif 6 % minimum","Budget 150–200 k€","Secteur Lyon 7e/8e ou Villeurbanne"],
+     variables:{},factures:[{bloc:1,kind:'audit',montant:790,statut:'emise',ts:'2024-03-27T14:00:00'}],
+     messages_pub:[],messages_priv:[],photos:[],docs:[]},
+
+    {id:'D006',clientId:'C006',ref:'TIM-2024-086',nom:'Mme Nora Khelil',email:'n.khelil@gmail.com',tel:'06 66 77 88 99',
+     type:'mise-vente',etape:'05',statut:'en_cours',created:'2024-03-15',
+     equipe:{lead:'SL1',sale:null,front:'CG1',back:'RP1'},pct:{lead:10,sale:0,front:20,back:20},
+     situation:"Bien à vendre, Lyon 3e. Diagnostics à jour.",objectif_bullets:["Vendre au meilleur prix sous 4 mois"],
+     variables:{prix:320000,prixReel:null},
+     factures:[{bloc:1,kind:'audit',montant:790,statut:'payee',ts:'2024-03-20T11:00:00'}],
+     messages_pub:[],messages_priv:[],photos:[],docs:[]},
+
+    {id:'D007',clientId:'C007',ref:'TIM-2024-070',nom:'M. Antoine Roux',email:'a.roux@gmail.com',tel:'',
+     type:'recherche-location',etape:'01',statut:'abandonne',created:'2024-02-01',
+     equipe:{lead:'AM1',sale:null,front:null,back:null},pct:{lead:10,sale:0,front:0,back:0},
+     situation:"Non joignable après 5 relances.",objectif_bullets:["—"],
+     variables:{},factures:[],
+     messages_pub:[],messages_priv:[{from:'admin',nom:'Nelly D.',text:'Dossier abandonné — non joignable.',ts:'2024-03-15T10:00:00'}],photos:[],docs:[]},
+
+    {id:'D008',clientId:'C008',ref:'TIM-2024-054',nom:'Mme Hélène Fabre',email:'h.fabre@gmail.com',tel:'06 77 88 99 00',
+     type:'mise-location',etape:'08',statut:'cloture',created:'2023-11-20',
+     equipe:{lead:'SL1',sale:null,front:'CG1',back:'RP1'},pct:{lead:10,sale:0,front:20,back:20},
+     situation:"Mise en location T3 Villeurbanne, 68 m².",objectif_bullets:["Relouer au prix du marché"],
+     variables:{surface:68,surfaceReel:68},
+     factures:[{bloc:1,kind:'audit',montant:490,statut:'payee',ts:'2023-11-28T10:00:00'},{bloc:3,kind:'solde',montant:884,statut:'payee',ts:'2024-01-12T16:00:00'}],
+     messages_pub:[],messages_priv:[],photos:[],docs:[]},
+
+    {id:'D009',clientId:'C001',ref:'TIM-2024-112',nom:'M. Bernard Chaumont',email:'b.chaumont@gmail.com',tel:'06 12 34 56 78',
+     type:'mise-location',etape:'03',statut:'en_cours',created:'2024-03-19',
+     equipe:{lead:null,sale:null,front:'CG1',back:'RP1'},pct:{lead:0,sale:0,front:20,back:20},
+     situation:"Suite du dossier D001 (rénovation) : remise en location du bien après travaux (~900 €/mois).",
+     objectif_bullets:["Relouer à ~900 €/mois dès réception des travaux","Locataire solvable (GLI)"],
+     variables:{surface:62,surfaceReel:null},
+     bien:{adresse:'14 rue Pasteur, 69007 Lyon',type:'Appartement T3',surface:'62 m²',dpe:'F — objectif C (dossier réno lié)'},
+     factures:[],messages_pub:[],messages_priv:[],photos:[],docs:[]},
+  ];
+
+  /* Pipeline B2B — prescripteurs (apporteurs d'affaires), indépendant du pipeline client.
+     owner = trig du mandataire qui suit la relation. */
+  var PRESCRIPTEURS = [
+    {id:'P001',nom:'Agence Century 21 Part-Dieu',contact:'Julien Roche',email:'j.roche@century21-partdieu.fr',tel:'04 78 12 34 56',secteur:'Agence immobilière',etape:'nouveau',owner:'AM1',created:'2024-03-28',notes:'',
+     adresse:'12 rue Garibaldi, 69003 Lyon',canal:'Email',dernier_contact:'28 mars 2024',criteres:[],messages:[]},
+    {id:'P002',nom:'Étude Notariale Girard & Associés',contact:'Me Sophie Girard',email:'s.girard@notaires-lyon.fr',tel:'04 72 00 11 22',secteur:'Notaire',etape:'prospect',owner:'SL1',created:'2024-03-10',notes:"Rencontrée au salon de l'immobilier.",
+     adresse:'',canal:'Téléphone',dernier_contact:'12 mars 2024',criteres:[],messages:[]},
+    {id:'P003',nom:'Batiment Pro Rénovation',contact:'Karim Zidi',email:'k.zidi@batipro.fr',tel:'06 45 22 11 09',secteur:'Courtier en travaux',etape:'contact',owner:'AM1',created:'2024-02-20',notes:'',
+     adresse:'',canal:'',dernier_contact:'',criteres:[],messages:[]},
+    {id:'P004',nom:'Syndic Immo Gestion',contact:'Nadia Ferrand',email:'n.ferrand@immogestion.fr',tel:'04 78 55 44 33',secteur:'Syndic',etape:'demo',owner:'SL1',created:'2024-01-15',notes:'Démo prévue le 15 avril.',
+     adresse:'',canal:'',dernier_contact:'',criteres:[],messages:[]},
+    {id:'P005',nom:'Orpi Lyon 6e',contact:'Thomas Marchand',email:'t.marchand@orpi-lyon6.fr',tel:'04 78 99 88 77',secteur:'Agence immobilière',etape:'interesse',owner:'AM1',created:'2023-12-05',notes:'Attend validation de son réseau.',
+     adresse:'',canal:'',dernier_contact:'',criteres:['Commission apporteur : 5 % HT du forfait Bloc 1 pour tout client signé'],messages:[]},
+    {id:'P006',nom:'Crédit Immo Conseil',contact:'Laura Petit',email:'l.petit@creditimmoconseil.fr',tel:'06 11 22 33 44',secteur:'Banque / Courtier crédit',etape:'signe',owner:'SL1',created:'2023-10-01',notes:'Partenariat signé — apporteur actif.',
+     adresse:'22 cours Lafayette, 69003 Lyon',canal:'Téléphone',dernier_contact:'2 mars 2024',criteres:['Commission apporteur : 5 % HT du forfait Bloc 1','Exclusivité sectorielle : Lyon 3e / 6e / 8e','Reversement sous 30 jours après encaissement client'],messages:[{from:'admin',nom:'Nelly D.',text:'Contrat de partenariat signé et archivé.',ts:'2023-10-05T09:00:00'}]},
+  ];
+
+
+  /* ── ENTITÉ CLIENT — un client, N dossiers (parcours en chaîne) ───────────
+     En production : table clients, dossiers.client_id (FK). */
+  var CLIENTS = [
+    {id:'C001',prenom:'Bernard',nom:'M. Bernard Chaumont',email:'b.chaumont@gmail.com',tel:'06 12 34 56 78',adresse:'8 avenue Berthelot, 69007 Lyon'},
+    {id:'C002',prenom:'Fatou',  nom:'Mme Fatou Diallo',   email:'f.diallo@gmail.com', tel:'06 22 33 44 55'},
+    {id:'C003',prenom:'Sylvie', nom:'Mme Sylvie Morel',   email:'s.morel@gmail.com',  tel:'06 33 44 55 66'},
+    {id:'C004',prenom:'Karim',  nom:'M. Karim Benali',    email:'k.benali@gmail.com', tel:'06 44 55 66 77'},
+    {id:'C005',prenom:'Omar',   nom:'M. Omar Traore',     email:'o.traore@gmail.com', tel:'06 55 66 77 88'},
+    {id:'C006',prenom:'Nora',   nom:'Mme Nora Khelil',    email:'n.khelil@gmail.com', tel:'06 66 77 88 99'},
+    {id:'C007',prenom:'Antoine',nom:'M. Antoine Roux',    email:'a.roux@gmail.com',   tel:''},
+    {id:'C008',prenom:'Helene', nom:'Mme Helene Fabre',   email:'h.fabre@gmail.com',  tel:'06 77 88 99 00'},
+  ];
+  function dossiersOf(clientId){ return DOSSIERS.filter(function(d){ return d.clientId===clientId; }); }
+
+  global.TDATA = { MANDATAIRES: MANDATAIRES, DOSSIERS: DOSSIERS, PRESCRIPTEURS: PRESCRIPTEURS, CLIENTS: CLIENTS, dossiersOf: dossiersOf };
+})(window);
+
+</script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;font-family:'Plus Jakarta Sans',system-ui,sans-serif;font-size:13px;color:#0B0B0B;background:#F5F5F3}
 :root{
   --green:#5FA694;--gl:#E1F5EE;--gd:#0F6E56;--orange:#FF8352;--ol:#FAECE7;--od:#993C1D;
   --blue:#378ADD;--bl:#E6F1FB;--bd:#185FA5;--red:#E24B4A;--rl:#FCEBEB;--rd:#A32D2D;
-  --yellow:#EDA100;--yl:#FAEEDA;--yd:#854F0B;--purple:#7F77DD;--pl:#EEEDFE;--pd:#534AB7;
-  --border:#E1E0D9;--s0:#FAFAF9;--s1:#FFFFFF;--bg:#F5F5F3;
+  --yellow:#EDA100;--yl:#FAEEDA;--yd:#854F0B;--border:#E1E0D9;--s0:#FAFAF9;--s1:#FFFFFF;--bg:#F5F5F3;
   --t1:#0B0B0B;--t2:#52514E;--t3:#898781;--r:9px;--rl2:14px
 }
-a{color:var(--gd)}a:hover{color:var(--t1)}
 .nav{display:flex;align-items:center;gap:10px;padding:11px 18px;background:var(--s1);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:50}
 .logo{display:flex;align-items:center;gap:7px;font-size:14px;font-weight:700}
 .logo-mark{width:28px;height:28px;border-radius:8px;background:var(--green);display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:800}
-.nav-r{margin-left:auto;display:flex;align-items:center;gap:10px}
-.nav-av{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#fff}
-.btn-expert{display:flex;align-items:center;gap:5px;padding:6px 12px;border-radius:var(--r);border:1.5px solid var(--green);background:var(--gl);color:var(--gd);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit}
-.btn-expert:hover{background:var(--green);color:#fff}
-.tabs{display:flex;border-bottom:1px solid var(--border);background:var(--s1);padding:0 20px;overflow-x:auto}
-.tab{display:flex;align-items:center;gap:4px;padding:11px 15px;font-size:12px;font-weight:700;cursor:pointer;border-bottom:2px solid transparent;color:var(--t3);white-space:nowrap;background:none;border-left:none;border-right:none;border-top:none;font-family:inherit}
-.tab:hover{color:var(--t1)}.tab.active{color:var(--t1);border-bottom-color:var(--green)}
-.tsec{display:none;padding:20px;max-width:960px;margin:0 auto}.tsec.active{display:block}
-.section-full{background:var(--s1);border:1px solid var(--border);border-radius:var(--rl2);padding:16px;margin-bottom:14px}
+.nav-r{margin-left:auto;font-size:11px;color:var(--t3);font-weight:600}
+.page{max-width:980px;margin:0 auto;padding:18px 20px 40px}
+/* En-tête client — mêmes conventions que la page Dossier */
+.dh{background:var(--s1);border:1px solid var(--border);border-radius:var(--rl2);padding:16px 18px;margin-bottom:14px}
+.dh-top{display:flex;align-items:center;gap:13px;flex-wrap:wrap}
+.dh-av{width:46px;height:46px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;flex-shrink:0}
+.dh-name{font-size:17px;font-weight:800}
+.dh-ref{font-size:11px;color:var(--t3);font-weight:600}
+.dh-meta{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--t2)}
+.dh-meta a{color:var(--bd);text-decoration:none;font-weight:600}
+.dh-actions{margin-left:auto;display:flex;gap:8px;align-items:center}
+.badge{font-size:10px;font-weight:800;padding:3px 9px;border-radius:10px;text-transform:uppercase;letter-spacing:.04em}
+/* Satisfaction — le client est le manager */
+.sat-pills{display:flex;gap:5px}
+.sat-pill{font-size:16px;padding:4px 9px;border-radius:9px;border:1.5px solid var(--border);background:var(--s1);cursor:pointer;opacity:.45}
+.sat-pill.active{opacity:1;border-width:2px}
+.sat-pill.s-ok.active{border-color:var(--green);background:var(--gl)}
+.sat-pill.s-mid.active{border-color:var(--yellow);background:var(--yl)}
+.sat-pill.s-ko.active{border-color:var(--red);background:var(--rl)}
+/* Signaux automatiques */
+.sig{display:flex;align-items:flex-start;gap:10px;padding:10px 13px;border-radius:var(--r);margin-bottom:7px;font-size:12px;line-height:1.5;border:1.5px solid}
+.sig-ko{background:var(--rl);border-color:var(--red);color:var(--rd)}
+.sig-warn{background:var(--yl);border-color:var(--yellow);color:var(--yd)}
+.sig-ok{background:var(--gl);border-color:var(--green);color:var(--gd)}
+.cols{display:grid;grid-template-columns:1.4fr 1fr;gap:14px}
+@media(max-width:720px){.cols{grid-template-columns:1fr}}
+.card{background:var(--s1);border:1px solid var(--border);border-radius:var(--rl2);padding:15px;margin-bottom:14px}
 .ctitle{font-size:10px;font-weight:800;color:var(--t3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:8px}
-.cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
-@media(max-width:640px){.cols{grid-template-columns:1fr}}
-.pdv-cols{display:grid;grid-template-columns:1.2fr .8fr;gap:14px}
-@media(max-width:800px){.pdv-cols{grid-template-columns:1fr}}
-.card{background:var(--s1);border:1px solid var(--border);border-radius:var(--rl2);padding:15px}
-/* FRISE */
-.frise{display:flex;gap:0;padding:6px 0 2px}
-.fs{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;position:relative}
-.fs:not(:last-child)::after{content:'';position:absolute;top:18px;left:57%;right:-43%;height:3px;background:var(--border);z-index:0}
-.fs.done::after{background:var(--green)}.fs.active::after{background:linear-gradient(to right,var(--orange),var(--border))}
-.fs-dot{width:36px;height:36px;border-radius:50%;border:2px solid var(--border);background:var(--s1);display:flex;align-items:center;justify-content:center;font-size:16px;z-index:1;position:relative}
-.fs-lbl{font-size:11px;text-align:center;font-weight:700;color:var(--t3);line-height:1.3}
-.fs-sub{font-size:9px;color:var(--t3);text-align:center}
-.action-banner{background:var(--ol);border:1.5px solid var(--orange);border-radius:var(--rl2);padding:15px 18px;margin-bottom:14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-.livrable-box{background:var(--gl);border:1px solid #8ECFBE;border-radius:var(--r);padding:12px 14px;margin-top:10px}
-.readonly-block{font-size:12.5px;line-height:1.7;color:var(--t2);background:var(--bg);border-radius:var(--r);padding:12px 14px;border-left:3px solid var(--green)}
-.fr{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px}
-.fr:last-child{border-bottom:none}.fl{color:var(--t3)}.fv{font-weight:700;text-align:right}
-.obj-item{display:flex;align-items:flex-start;gap:9px;padding:9px 11px;border-radius:var(--r);background:var(--bg);border:1px solid var(--border);margin-bottom:6px}
-.obj-num{width:20px;height:20px;border-radius:50%;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;flex-shrink:0;margin-top:1px}
-.equipe-item{display:flex;align-items:center;gap:9px;padding:9px 11px;border-radius:var(--r);background:var(--bg);border:1px solid var(--border);margin-bottom:6px}
-.equipe-item.main{background:var(--gl);border-color:#8ECFBE}
-.eq-av{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#fff;flex-shrink:0}
-.suite-item{display:flex;align-items:flex-start;gap:9px;padding:9px 11px;border-radius:var(--r);background:var(--bg);border:1px solid var(--border);margin-bottom:6px;font-size:12px;color:var(--t2)}
-.suite-dot{width:7px;height:7px;border-radius:50%;background:var(--border);flex-shrink:0;margin-top:4px}
-.budget-label{font-size:10px;font-weight:800;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;margin:12px 0 6px}
-.budget-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12px}
-.budget-row:last-child{border-bottom:none}
-.budget-statut{font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;white-space:nowrap}
-.bs-paid{background:var(--gl);color:var(--gd)}.bs-pending{background:var(--yl);color:var(--yd)}.bs-future{background:var(--bg);color:var(--t3);border:1px solid var(--border)}.bs-blocked{background:var(--rl);color:var(--rd)}.bs-due{background:var(--ol);color:var(--od)}
-.journal-section{background:var(--s1);border:1px solid var(--border);border-radius:var(--rl2);padding:16px;margin-bottom:14px}
-.journal{display:flex;flex-direction:column;gap:0}
-.j-item{display:flex;gap:11px;position:relative;padding-bottom:14px}
-.j-item:last-child{padding-bottom:0}
-.j-item:not(:last-child)::before{content:'';position:absolute;left:11px;top:24px;bottom:0;width:1.5px;background:var(--border)}
-.j-dot{width:22px;height:22px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;z-index:1}
-.j-done{background:var(--green);color:#fff}.j-active{background:var(--orange);color:#fff;box-shadow:0 0 0 3px var(--ol)}.j-wait{background:var(--bg);color:var(--t3);border:1.5px solid var(--border)}
-.j-body{flex:1}.j-date{font-size:10px;color:var(--t3);margin-bottom:2px;font-weight:600}.j-text{font-size:12px;line-height:1.55;color:var(--t2)}.j-text strong{color:var(--t1)}
-.j-action-btn{margin-top:9px;display:inline-flex;align-items:center;gap:5px;padding:8px 14px;border-radius:var(--r);background:var(--orange);color:#fff;border:none;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit}
-.cta-next{background:linear-gradient(135deg,#0F6E56,#5FA694);color:#fff;border-radius:var(--rl2);padding:20px 22px;margin-bottom:14px;text-align:center}
-.cta-next button{margin-top:10px;background:#fff;color:var(--gd);border:none;border-radius:var(--r);padding:9px 18px;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit}
-.photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
-.photo-card{border-radius:var(--r);overflow:hidden;border:1px solid var(--border);background:var(--s1)}
-.photo-img{width:100%;height:130px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:32px;border-bottom:1px solid var(--border)}
-.photo-meta{padding:8px 10px}.photo-date{font-size:10px;color:var(--t3);margin-bottom:3px}.photo-caption{font-size:11px;color:var(--t2);line-height:1.4}
-.doc-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--r);background:var(--bg);border:1px solid var(--border);margin-bottom:7px}
-.doc-icon{width:30px;height:30px;border-radius:7px;background:var(--gl);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
-.doc-btn{display:inline-flex;align-items:center;gap:3px;padding:5px 10px;border-radius:6px;font-size:11px;font-weight:700;border:1.5px solid var(--border);background:var(--s1);color:var(--t1);cursor:pointer;text-decoration:none;margin-left:auto;flex-shrink:0}
-.msg-wrap{display:flex;flex-direction:column;gap:9px;margin-bottom:14px;max-height:400px;overflow-y:auto;padding:2px}
-.msg-bubble{border-radius:12px;padding:10px 13px;font-size:12px;max-width:78%;line-height:1.55}
-.msg-in{background:var(--bg);border:1px solid var(--border);border-radius:12px 12px 12px 0;align-self:flex-start}
-.msg-out{background:var(--bl);border-radius:12px 12px 0 12px;align-self:flex-end}
-.msg-meta{font-size:10px;font-weight:700;color:var(--t3);margin-bottom:3px}
-.msg-input-row{display:flex;gap:7px}
-.msg-input{flex:1;border:1.5px solid var(--border);border-radius:var(--r);padding:8px 11px;font-size:12px;font-family:inherit;outline:none}
-.msg-send{background:var(--green);color:#fff;border:none;border-radius:var(--r);padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit}
-.btn{display:inline-flex;align-items:center;gap:4px;padding:8px 14px;border-radius:var(--r);font-size:12px;font-weight:700;border:1.5px solid var(--border);background:var(--s1);color:var(--t1);cursor:pointer;font-family:inherit}.btn:hover{background:var(--bg)}
+/* Carte projet */
+.proj{border:1.5px solid var(--border);border-radius:var(--r);padding:12px 13px;margin-bottom:9px;background:var(--s0)}
+.proj-top{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.proj-ico{font-size:17px}
+.proj-name{font-size:13px;font-weight:800;flex:1}
+.proj-etape{font-size:11px;color:var(--t2);margin-top:6px;line-height:1.5}
+.proj-foot{display:flex;align-items:center;gap:10px;margin-top:9px;flex-wrap:wrap}
+.eq-av{width:24px;height:24px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:8px;font-weight:800;color:#fff}
+.pbar{height:5px;background:var(--bg);border-radius:3px;overflow:hidden;margin-top:8px}
+.pbar>div{height:100%;background:linear-gradient(to right,var(--gd),var(--green))}
+.fin-row{display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12px}
+.fin-row:last-child{border-bottom:none}
+.fin-big{font-size:18px;font-weight:800}
+.owner-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--r);background:var(--s0);border:1.5px solid var(--border)}
+.btn{display:inline-flex;align-items:center;gap:4px;padding:8px 14px;border-radius:var(--r);font-size:12px;font-weight:700;border:1.5px solid var(--border);background:var(--s1);color:var(--t1);cursor:pointer;font-family:inherit}
+.btn:hover{background:var(--bg)}
+.btn-warn{border-color:var(--orange);background:var(--ol);color:var(--od)}
+.j-item{display:flex;gap:10px;padding-bottom:12px;position:relative}
+.j-item:not(:last-child)::before{content:'';position:absolute;left:9px;top:20px;bottom:0;width:1.5px;background:var(--border)}
+.j-dot{width:18px;height:18px;border-radius:50%;background:var(--bg);border:1.5px solid var(--border);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:8px;z-index:1}
+.j-date{font-size:10px;color:var(--t3);font-weight:600}
+.j-text{font-size:12px;color:var(--t2);line-height:1.5}
 .mo{display:none;position:fixed;inset:0;background:rgba(0,0,0,.28);z-index:200;align-items:center;justify-content:center}
 .mo.open{display:flex}
-.mo-box{background:var(--s1);border-radius:18px;width:420px;max-width:94vw;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.18)}
-.mo-head{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;font-size:14px;font-weight:700}
+.mo-box{background:var(--s1);border-radius:18px;width:400px;max-width:94vw;box-shadow:0 20px 60px rgba(0,0,0,.18)}
+.mo-head{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;font-size:14px;font-weight:700}
 .mo-body{padding:18px}.mo-close{background:none;border:none;font-size:18px;cursor:pointer;color:var(--t3)}
-.mo-foot{padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end}
-.form-group{margin-bottom:13px}
-.form-group label{display:block;font-size:10px;font-weight:800;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
-.form-group input,.form-group textarea{width:100%;border:1.5px solid var(--border);border-radius:var(--r);padding:9px 11px;font-size:13px;font-family:inherit;outline:none;color:var(--t1);resize:vertical}
-.form-group input:focus,.form-group textarea:focus{border-color:var(--green)}
-/* PLAN DE VOL (lecture client) */
-.pv-bloc{border:1.5px solid var(--border);border-radius:14px;padding:12px;margin-bottom:14px;background:var(--s0)}
-.pv-bloc-head{display:flex;align-items:center;gap:9px;margin-bottom:10px;flex-wrap:wrap;cursor:pointer}
-.pv-bloc.closed{margin-bottom:8px}
-.pv-bloc.closed .pv-bloc-head{margin-bottom:0}
-.pv-bloc-chevron{font-size:11px;color:var(--t3);margin-left:6px;flex-shrink:0;transition:transform .15s}
-.pv-bloc-body{display:none}
-.pv-bloc.open .pv-bloc-body{display:block}
-.pv-bloc-badge{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;padding:3px 8px;border-radius:8px;color:#fff}
-.pv-bloc-title{font-size:14px;font-weight:800}
-.pv-bloc-etapes{font-size:10px;color:var(--t3);font-family:monospace;margin-left:auto}
-.pv-etape{display:flex;gap:11px;padding:10px 4px;border-bottom:1px solid var(--border)}
-.pv-etape:last-child{border-bottom:none}
-.pv-edot{width:26px;height:26px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#fff;margin-top:1px}
-.pv-etitle{font-size:12.5px;font-weight:700}
-.pv-edesc{font-size:11.5px;color:var(--t2);line-height:1.5;margin-top:2px}
-.pv-etag{font-size:9px;font-weight:800;padding:2px 7px;border-radius:8px;margin-left:8px;white-space:nowrap}
-.fact-due-card{background:var(--ol);border:1.5px solid var(--orange);border-radius:var(--rl2);padding:15px 18px;margin-bottom:14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-.contact-line{font-size:11px;font-weight:700;color:var(--blue);text-decoration:none;white-space:nowrap}
-::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
-/* ── MES PROJETS — entité client, N dossiers (v2.2) ── */
-.pswitch{display:flex;align-items:center;gap:8px;padding:10px 16px;background:var(--s0,#FAFAF9);border-bottom:1px solid var(--border);overflow-x:auto}
-.pswitch-lbl{font-size:10px;font-weight:800;color:var(--t3);text-transform:uppercase;letter-spacing:.07em;white-space:nowrap}
-.ppill{display:flex;align-items:center;gap:8px;padding:7px 12px;border-radius:11px;border:1.5px solid var(--border);background:var(--s1,#fff);cursor:pointer;font-family:inherit;white-space:nowrap;text-align:left}
-.ppill:hover{border-color:var(--t3)}
-.ppill.active{border-width:2px}
-.ppill-ico{font-size:15px}
-.ppill-name{font-size:12px;font-weight:700;color:var(--t1);line-height:1.2}
-.ppill-sub{font-size:10px;color:var(--t3);line-height:1.2}
-.ppill-badge{font-size:9px;font-weight:800;padding:2px 7px;border-radius:9px;text-transform:uppercase;letter-spacing:.04em}
+.mand-opt{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:var(--r);border:1.5px solid var(--border);margin-bottom:7px;cursor:pointer}
+.mand-opt:hover{border-color:var(--green);background:var(--gl)}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
 </style>
-<script src="js/auth.js"></script>
-<script>authRequire(['client']);</script>
 </head>
 <body>
 <nav class="nav">
-  <div class="logo"><div class="logo-mark">T</div>Timonia</div>
-  <div class="nav-r">
-    <button class="btn-expert" onclick="openModal('expertModal')">📞 Mon expert</button>
-    <div class="nav-av" id="navAv" style="background:#378ADD">BC</div>
-    <div style="display:flex;flex-direction:column"><span style="font-size:12px;font-weight:700" id="navName">—</span><span style="font-size:10px;color:var(--t3)">Espace client</span></div>
-  </div>
+  <div class="logo"><div class="logo-mark">T</div>Timonia OS · Fiche Client</div>
+  <div class="nav-r">partner.timonia.fr</div>
 </nav>
-
-<div class="pswitch" id="pswitch" style="display:none"></div>
-
-<div class="tabs">
-  <button class="tab active" id="tab-btn-dossier" onclick="openTab('dossier',this)">🏠 Mon dossier</button>
-  <button class="tab" id="tab-btn-projet" onclick="openTab('projet',this)">📋 Mon projet</button>
-  <button class="tab" id="tab-btn-photos" onclick="openTab('photos',this)">📷 Carnet de bord</button>
-  <button class="tab" id="tab-btn-documents" onclick="openTab('documents',this)">📁 Documents</button>
-  <button class="tab" id="tab-btn-messages" onclick="openTab('messages',this)">💬 Messages</button>
-</div>
-
-<!-- ═══ MON DOSSIER (hero : où j'en suis + action + journal) ═══ -->
-<div class="tsec active" id="tsec-dossier">
-  <div class="section-full">
-    <div class="ctitle" style="margin-bottom:10px">🗺️ Où en est votre projet</div>
-    <div class="frise" id="frise"></div>
-    <div class="livrable-box" id="livrable-box"></div>
-  </div>
-
-  <div id="cta-next-wrap"></div>
-  <div class="action-banner" id="action-banner" style="display:none">
-    <span style="font-size:22px">⚡</span>
-    <div style="flex:1"><div style="font-size:12px;font-weight:800;color:var(--od);margin-bottom:3px">Votre action est requise</div><div style="font-size:12px;color:var(--od);line-height:1.5" id="action-text">—</div></div>
-    <button class="j-action-btn" style="margin-top:0" onclick="validerDevis()">✅ Je valide</button>
-  </div>
-
-  <div id="fact-due-wrap"></div>
-
-  <div class="pdv-cols">
-    <div class="section-full" style="margin-bottom:0">
-      <div class="ctitle">🧭 Votre plan de vol — toutes les étapes</div>
-      <div id="pv-detail"></div>
-    </div>
-    <div class="journal-section" style="margin-bottom:0">
-      <div class="ctitle">📋 Journal de votre dossier<span style="font-size:10px;font-weight:400;color:var(--t3);text-transform:none;letter-spacing:0">récent en haut</span></div>
-      <div class="journal" id="journal"></div>
-    </div>
-  </div>
-</div>
-
-<!-- ═══ MON PROJET (situation, objectifs, équipe — lecture) ═══ -->
-<div class="tsec" id="tsec-projet">
+<div class="page">
+  <div class="dh" id="dh"></div>
+  <div id="sat-banner"></div>
+  <div class="card"><div class="ctitle">🤖 Signaux automatiques <span style="text-transform:none;letter-spacing:0;font-weight:600">dérivés des données — aucun manager requis</span></div><div id="signaux"></div></div>
   <div class="cols">
-    <div style="display:flex;flex-direction:column;gap:12px">
-      <div class="card"><div class="ctitle">👤 Vous</div><div id="client-box"></div></div>
-      <div class="card"><div class="ctitle">🏠 Votre bien</div><div id="bien-box"></div></div>
-      <div class="card"><div class="ctitle">📋 Votre situation</div><div class="readonly-block" id="sit-box"></div><div style="font-size:10px;color:var(--t3);margin-top:8px;line-height:1.5">Renseignée par votre équipe Timonia lors du Conseil Flash. Une précision à apporter ? Écrivez-nous dans l'onglet Messages.</div></div>
-      <div class="card"><div class="ctitle">🎯 Vos objectifs</div><div id="obj-list"></div></div>
+    <div>
+      <div class="card"><div class="ctitle">📁 Projets du client <span id="proj-count"></span></div><div id="projets"></div></div>
     </div>
-    <div style="display:flex;flex-direction:column;gap:12px">
-      <div class="card"><div class="ctitle">👥 Votre équipe Timonia</div><div id="equipe-list"></div></div>
-      <div class="card"><div class="ctitle">🗂️ Votre type de projet</div><div id="type-box"></div></div>
-      <div class="card"><div class="ctitle">💰 Votre budget<span style="font-size:9px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--t3)">honoraires & factures</span></div><div id="budget-content"></div></div>
+    <div>
+      <div class="card"><div class="ctitle">💰 Synthèse financière</div><div id="fin"></div></div>
+      <div class="card"><div class="ctitle">👤 Interlocuteur principal</div><div id="owner"></div></div>
+      <div class="card"><div class="ctitle">📋 Journal de la relation</div><div id="rel-journal"></div></div>
     </div>
   </div>
 </div>
 
-<!-- ═══ CARNET ═══ -->
-<div class="tsec" id="tsec-photos">
-  <div style="background:var(--bl);border:1px solid #85B7EB;border-radius:var(--r);padding:10px 13px;font-size:12px;color:var(--bd);margin-bottom:16px;font-weight:600">📷 Votre équipe publie des photos au fil de l'avancement — et vous pouvez en ajouter aussi.</div>
-  <div class="btn-expert" style="margin-bottom:16px;border-color:var(--green);color:var(--gd);background:var(--gl)" onclick="openPhotoAdd()">📷 Ajouter une photo</div>
-  <div class="photo-grid" id="photo-grid"></div>
-</div>
-
-<!-- ═══ DOCUMENTS ═══ -->
-<div class="tsec" id="tsec-documents">
-  <div style="background:var(--bl);border:1px solid #85B7EB;border-radius:var(--r);padding:10px 13px;font-size:12px;color:var(--bd);margin-bottom:14px;font-weight:600">📁 Vos documents sont stockés de façon sécurisée. Vos factures sont détaillées dans l'onglet Mon projet.</div>
-  <div id="doc-list"></div>
-</div>
-
-<!-- ═══ MESSAGES ═══ -->
-<div class="tsec" id="tsec-messages">
-  <div style="max-width:640px;margin:0 auto">
-    <div class="card">
-      <div class="ctitle">💬 Conversation avec votre équipe</div>
-      <div class="msg-wrap" id="msg-wrap"></div>
-      <div class="msg-input-row"><input type="text" class="msg-input" placeholder="Votre message…" id="msgInput" onkeydown="if(event.key==='Enter')sendMsg()"><button class="msg-send" onclick="sendMsg()">Envoyer</button></div>
-    </div>
-  </div>
-</div>
-
-<!-- MODAL AJOUT PHOTO -->
-<div class="mo" id="photoModal" onclick="if(event.target===this)closeModal('photoModal')">
+<!-- MODAL CHANGEMENT INTERLOCUTEUR -->
+<div class="mo" id="moChange" onclick="if(event.target===this)closeMo()">
   <div class="mo-box">
-    <div class="mo-head">📷 Ajouter une photo<button class="mo-close" onclick="closeModal('photoModal')">✕</button></div>
+    <div class="mo-head">Changer d'interlocuteur<button class="mo-close" onclick="closeMo()">✕</button></div>
     <div class="mo-body">
-      <div class="form-group"><label>Photo</label><input type="file" id="photo-file" accept="image/*" onchange="onPhotoPick(this)"><div id="photo-preview" style="margin-top:10px"></div></div>
-      <div class="form-group"><label>Commentaire (facultatif)</label><textarea id="photo-caption" rows="2" placeholder="Ex: Photo de l'avancement…"></textarea></div>
-      <div style="font-size:11px;color:var(--t3);line-height:1.5">La date, l'heure et votre nom sont enregistrés automatiquement.</div>
+      <div style="font-size:12px;color:var(--t2);line-height:1.6;margin-bottom:13px">Le client est le manager : s'il n'est pas satisfait, on change d'interlocuteur, sans friction. Le changement est journalisé.</div>
+      <div id="mand-list"></div>
     </div>
-    <div class="mo-foot"><button class="btn" onclick="closeModal('photoModal')">Annuler</button><button class="btn-expert" style="border-color:var(--green);color:#fff;background:var(--green)" onclick="confirmPhotoAdd()">Publier</button></div>
-  </div>
-</div>
-
-<!-- MODAL EXPERT -->
-<div class="mo" id="expertModal" onclick="if(event.target===this)closeModal('expertModal')">
-  <div class="mo-box">
-    <div class="mo-head">📞 Contacter votre expert<button class="mo-close" onclick="closeModal('expertModal')">✕</button></div>
-    <div class="mo-body" id="expert-body"></div>
   </div>
 </div>
 
 <script>
-/* ═══ DOSSIER CLIENT — dérivé de la SOURCE UNIQUE (window.T + window.TDATA) ═══
-   Alignement avec l'OS Partner : mêmes étapes, mêmes blocs, mêmes types, même
-   équipe/factures — plus aucune donnée redéfinie localement. */
 function qs(k){return new URLSearchParams(location.search).get(k);}
-var MANDATAIRES=window.TDATA.MANDATAIRES;
-/* ═══ ENTITÉ CLIENT — un client, N projets (v2.2) ═══
-   Le client connecté voit TOUS ses dossiers et bascule entre eux.
-   Démo : compte client → C001. En prod : clientId vient de la session. */
-var D=window.TDATA.DOSSIERS.find(function(x){return x.id===(qs('id')||'D001');})||window.TDATA.DOSSIERS[0];
-var CLIENT=(window.TDATA.CLIENTS||[]).find(function(c){return c.id===D.clientId;})||null;
-var PROJETS=CLIENT?window.TDATA.dossiersOf(CLIENT.id):[D];
-function renderPswitch(){
-  var el=document.getElementById('pswitch');if(!el)return;
-  if(PROJETS.length<2){el.style.display='none';return;}
-  el.style.display='flex';
-  el.innerHTML='<span class="pswitch-lbl">Mes projets</span>'+PROJETS.map(function(p,i){
-    var t=T.type(p.type);var e=T.etape(p.etape);var active=(p.id===D.id);
-    var badge=p.statut==='cloture'
-      ?'<span class="ppill-badge" style="background:var(--gl,#E1F5EE);color:var(--gd,#0F6E56)">Livré</span>'
-      :'<span class="ppill-badge" style="background:'+t.color+'1A;color:'+t.color+'">'+(e?e.client:'')+'</span>';
-    return '<button class="ppill'+(active?' active':'')+'" style="'+(active?'border-color:'+t.color:'')+'" onclick="switchProjet('+i+')">'+
-      '<span class="ppill-ico">'+t.icon+'</span><span><span class="ppill-name">'+t.label+'</span><br><span class="ppill-sub">'+p.ref+'</span></span>'+badge+'</button>';
-  }).join('');
-}
-function switchProjet(i){
-  D=PROJETS[i];
-  rejouerEvenements();
-  renderBoot();renderPswitch();
-}
+var CID=qs('id')||'C001';
+var CLIENT=TDATA.CLIENTS.find(function(c){return c.id===CID;});
+var PROJETS=TDATA.dossiersOf(CID);
+function mand(trig){return TDATA.MANDATAIRES.find(function(m){return m.trig===trig;});}
+function euro(n){return (n||0).toLocaleString('fr-FR')+' €';}
+function store(k,def){try{var v=localStorage.getItem('tim_cli_fiche_'+CID+'_'+k);return v!=null?JSON.parse(v):def;}catch(e){return def;}}
+function save(k,v){localStorage.setItem('tim_cli_fiche_'+CID+'_'+k,JSON.stringify(v));}
 
-
-/* Rôle → libellé & description côté CLIENT (jamais le langage interne "Lead/Sale/Front/Back") */
-var CLIENT_ROLE={
-  front:{label:'Coordination de votre dossier',desc:'Votre interlocutrice principale — suivi terrain au quotidien.',main:true},
-  back: {label:'Suivi juridique & administratif',desc:'Sécurise les aspects réglementaires de votre dossier.',main:false},
-  sale: {label:'Conseil Timonia',desc:'Vous accompagne sur les choix stratégiques.',main:false},
-  lead: {label:'Mise en relation',desc:'A initié votre accompagnement Timonia.',main:false},
-};
-
-/* Enrichissement démo (uniquement pour D001 — TDATA ne définit pas encore
-   travauxArtisans/journal ; en prod ces champs viendront de l'API). */
-if(D.id==='D001'){
-  D.travauxArtisans=D.travauxArtisans||[{nom:'Chausson Isolation',montant:14200},{nom:'Électricité Morel',montant:8400},{nom:'Menuiseries Bordet',montant:2200}];
-  D.journal=D.journal||[
-    {date:'18 mars 2024',text:"<strong>Votre accord est attendu</strong> sur les devis des 3 artisans. Disponibles dans l'onglet Documents.",type:'active'},
-    {date:'28 fév. 2024',text:"Nous avons sélectionné <strong>3 artisans qualifiés RGE</strong>. Total devis : 24 800 €.",type:'done'},
-    {date:'14 fév. 2024',text:"Vous avez <strong>validé le Plan de Vol</strong> et signé le devis de mise en œuvre.",type:'done'},
-    {date:'12 fév. 2024',text:"Votre <strong>livrable d'audit</strong> vous a été remis. Facture Audit de 2 200 €.",type:'done'},
-    {date:'18 jan. 2024',text:"Vous avez <strong>signé la mission Timonia</strong>.",type:'done'},
-    {date:'8 jan. 2024',text:"<strong>Conseil Flash</strong> — situation analysée, objectifs définis.",type:'done'},
-  ];
-}
-
-/* ═══ INIT NAV ═══ */
-document.getElementById('navAv').textContent=((D.nom||'?').replace(/^(M\.|Mme)\s*/,'')[0]||'?').toUpperCase();
-document.getElementById('navName').textContent=(D.nom||D.email||'').replace(/^(M\.|Mme)\s*/,'');
-
-function activeBloc(){return T.blocForEtape(D.etape);}
-
-/* ═══ FRISE (Mon dossier) ═══ */
-function renderFrise(){
-  var ab=activeBloc();var cloture=D.statut==='cloture';
-  var steps=[{lbl:'Conseil Flash',icon:'⚡',amont:true}].concat(T.BLOCS.map(function(b){return {lbl:b.title,icon:b.id===1?'🔍':b.id===2?'🔧':'🏁',id:b.id,color:b.color,etapes:b.etapes};}));
-  document.getElementById('frise').innerHTML=steps.map(function(s){
-    var cls,col;
-    if(s.amont){cls='done';col='var(--green)';}
-    else if(cloture){cls='done';col=s.color;}
-    else if(ab&&s.id<ab.id){cls='done';col=s.color;}
-    else if(ab&&s.id===ab.id){cls='active';col=s.color;}
-    else{cls='';col='';}
-    var dotStyle=(cls==='done')?'background:'+col+';border-color:'+col+';color:#fff':(cls==='active')?'background:'+col+';border-color:'+col+';color:#fff;box-shadow:0 0 0 4px '+col+'33':'';
-    return '<div class="fs '+cls+'"><div class="fs-dot" style="'+dotStyle+'">'+(cls==='done'?'✓':s.icon)+'</div><div class="fs-lbl" style="'+(cls?'color:'+col:'')+'">'+s.lbl+'</div>'+(s.etapes?'<div class="fs-sub">étapes '+s.etapes.join('-')+'</div>':'<div class="fs-sub">offert</div>')+'</div>';
-  }).join('');
-  var lb=document.getElementById('livrable-box');
-  if(ab&&ab.id>=1){lb.style.display='block';lb.innerHTML='<div style="font-size:10px;font-weight:800;color:var(--gd);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">📄 Votre livrable d\'audit</div><div style="font-size:14px;font-weight:700;color:var(--gd)">« '+T.livrableFor(D.type)+' »</div>';}
-  else lb.style.display='none';
-}
-function renderCTA(){
-  var w=document.getElementById('cta-next-wrap');
-  if(D.etape===T.PIPELINE[T.PIPELINE.length-1].n){w.innerHTML='<div class="cta-next"><div style="font-size:16px;font-weight:800">🎉 Votre projet est livré !</div><div style="font-size:13px;opacity:.9;margin-top:4px">Un nouveau projet immobilier en tête ?</div><button onclick="alert(\'Nouvelle demande enregistrée — votre expert vous recontacte.\')">Prêt pour la prochaine étape avec Timonia ?</button></div>';}
-  else w.innerHTML='';
-}
-/* Action unique : dérivée de l'étape courante — jamais dupliquée avec le journal */
-function currentAction(){
-  if(D.etape==='04')return {kind:'audit_valide', text:"Votre audit vous a été remis. Votre validation déclenche votre facture d'audit et l'envoi du devis de mise en œuvre."};
-  if(D.etape==='05'){var v=T.variableEtape03(D.type);if(v&&D.variables[v.key]==null)return null;return {kind:'devis_valide', text:"Le livrable de l'étape d'audit vous a été remis avec le devis de mise en œuvre. Votre accord est nécessaire pour lancer la suite."};}
-  if(D.etape==='06'&&D.type==='renovation'){var docAValider=(D.docs||[]).find(function(d){return d.cat==='valid'&&d.status==='attente';});if(docAValider)return {text:'Les devis de vos artisans (RGE) sont prêts, dans l\'onglet Documents. Votre accord est nécessaire pour lancer la coordination des travaux.'};}
+/* Interlocuteur principal = front du dossier actif le plus récent (dérivé, modifiable) */
+function defaultOwner(){
+  var actifs=PROJETS.filter(function(d){return d.statut==='en_cours';}).sort(function(a,b){return b.created<a.created?-1:1;});
+  for(var i=0;i<actifs.length;i++){var e=actifs[i].equipe;var t=e.front||e.sale||e.lead||e.back;if(t)return t;}
   return null;
 }
-function renderAction(){
-  var a=currentAction();
-  var el=document.getElementById('action-banner');
-  if(a&&D.etape!==T.PIPELINE[T.PIPELINE.length-1].n){el.style.display='flex';document.getElementById('action-text').textContent=a.text;}
-  else el.style.display='none';
+var ownerTrig=store('owner',defaultOwner());
+var relJournal=store('journal',[]);
+var satisfaction=store('sat',null); // 'ok' | 'mid' | 'ko'
+
+/* ═══ EN-TÊTE ═══ */
+function renderDh(){
+  var ini=(CLIENT.prenom[0]||'')+(CLIENT.nom.split(' ').pop()[0]||'');
+  var depuis=PROJETS.length?PROJETS.map(function(d){return d.created;}).sort()[0]:'—';
+  var actifs=PROJETS.filter(function(d){return d.statut==='en_cours';}).length;
+  document.getElementById('dh').innerHTML=
+    '<div class="dh-top"><div class="dh-av">'+ini.toUpperCase()+'</div>'
+    +'<div><div class="dh-name">'+CLIENT.nom+'</div><div class="dh-ref">'+CLIENT.id+' · Client depuis '+depuis+'</div></div>'
+    +'<span class="badge" style="background:var(--gl);color:var(--gd)">'+actifs+' projet'+(actifs>1?'s':'')+' actif'+(actifs>1?'s':'')+'</span>'
+    +'<div class="dh-actions"><span style="font-size:10px;font-weight:800;color:var(--t3);text-transform:uppercase">Satisfaction</span><div class="sat-pills">'
+    +satPill('ok','😊')+satPill('mid','😐')+satPill('ko','😟')
+    +'</div></div></div>'
+    +'<div class="dh-meta"><span>✉️ <a href="mailto:'+CLIENT.email+'">'+CLIENT.email+'</a></span>'
+    +(CLIENT.tel?'<span>📞 <a href="tel:'+CLIENT.tel.replace(/\s/g,'')+'">'+CLIENT.tel+'</a></span>':'')
+    +(CLIENT.adresse?'<span>📍 '+CLIENT.adresse+'</span>':'')+'</div>';
 }
-function renderSuite(){
-  var idx=T.etapeIndex(D.etape);
-  var next=T.PIPELINE.slice(idx+1,idx+4).map(function(e){return e.desc;});
-  document.getElementById('suite-items').innerHTML=next.length?next.map(function(s){return '<div class="suite-item"><div class="suite-dot"></div><span>'+s+'</span></div>';}).join(''):'<div style="font-size:12px;color:var(--t3)">Dernière étape en cours.</div>';
+function satPill(k,ico){return '<button class="sat-pill s-'+k+(satisfaction===k?' active':'')+'" onclick="setSat(\''+k+'\')">'+ico+'</button>';}
+function setSat(k){
+  satisfaction=(satisfaction===k)?null:k;save('sat',satisfaction);
+  if(satisfaction==='ko')logRel('⚠️ Client déclaré <strong>mécontent</strong> — proposer un changement d\u2019interlocuteur.');
+  renderDh();renderSatBanner();
+}
+function renderSatBanner(){
+  var el=document.getElementById('sat-banner');
+  el.innerHTML=(satisfaction==='ko')
+    ?'<div class="sig sig-ko" style="margin-bottom:14px"><span style="font-size:16px">😟</span><div style="flex:1"><strong>Client mécontent — le client est le manager.</strong><br>Proposer immédiatement un changement d\u2019interlocuteur ou un appel de l\u2019admin.</div><button class="btn btn-warn" onclick="openChange()">Changer d\u2019interlocuteur</button></div>'
+    :'';
 }
 
-/* ═══ MON PROJET ═══ */
-function frow(l,v){return v?'<div class="fr"><span class="fl">'+l+'</span><span class="fv">'+v+'</span></div>':'';}
-function renderClient(){
-  var cl=D.client||{};
-  document.getElementById('client-box').innerHTML=
-    frow('Nom',D.nom)+frow('Statut',cl.statut)+frow('Téléphone',D.tel)+frow('Email',D.email)+frow('Adresse',cl.adresse)
-    ||'<div style="font-size:12px;color:var(--t3)">Informations en cours de saisie.</div>';
-}
-function renderBien(){
-  var b=D.bien;
-  document.getElementById('bien-box').innerHTML=b?
-    (frow('Adresse',b.adresse)+frow('Type',b.type)+frow('Surface',b.surface)+frow('DPE',b.dpe)+frow('Valeur',b.valeur)+frow('Loyer',b.loyer)):
-    '<div style="font-size:12px;color:var(--t3)">Aucun bien renseigné pour ce projet.</div>';
-}
-function renderSit(){document.getElementById('sit-box').textContent=D.situation||'—';}
-function renderObj(){
-  var list=D.objectif_bullets||[];
-  document.getElementById('obj-list').innerHTML=list.length?list.map(function(o,i){return '<div class="obj-item"><div class="obj-num">'+(i+1)+'</div><span style="flex:1;font-size:12px;color:var(--t2);line-height:1.5;padding-top:2px">'+o+'</span></div>';}).join(''):'<div style="font-size:12px;color:var(--t3)">Objectifs en cours de formalisation avec votre équipe.</div>';
-}
-function renderEquipe(){
-  var rows=['front','back','sale','lead'].map(function(role){
-    var trig=D.equipe&&D.equipe[role];if(!trig)return '';
-    var m=MANDATAIRES.find(function(x){return x.trig===trig;});if(!m)return '';
-    var c=CLIENT_ROLE[role];
-    return '<div class="equipe-item'+(c.main?' main':'')+'"><div class="eq-av" style="background:'+m.color+'">'+m.trig.slice(0,2)+'</div>'+
-      '<div style="flex:1"><div style="font-size:12px;font-weight:700">'+m.nom+(c.main?' <span style="font-size:10px;color:var(--od)">← votre interlocutrice</span>':'')+'</div><div style="font-size:10px;color:var(--t3)">'+c.label+' — '+c.desc+'</div></div>'+
-      (m.tel?'<a href="tel:'+m.tel.replace(/\s/g,'')+'" class="contact-line">'+m.tel+'</a>':'<span style="font-size:10px;color:var(--t3)">Numéro à venir</span>')+
-    '</div>';
-  }).join('');
-  document.getElementById('equipe-list').innerHTML=rows||'<div style="font-size:12px;color:var(--t3)">Équipe en cours d\'affectation.</div>';
-}
-function renderType(){
-  var t=T.type(D.type);
-  document.getElementById('type-box').innerHTML='<div style="font-size:14px;font-weight:700;margin-bottom:6px">'+t.icon+' '+t.label+'</div>'+
-    '<div style="font-size:11.5px;color:var(--t2);line-height:1.6">Votre accompagnement inclut un audit ('+'« '+t.livrable+' »), puis la mise en œuvre et la finalisation de votre projet — le détail complet est dans l\'onglet <strong>Mon projet</strong>.</div>';
-}
-
-/* ═══ MON SUIVI — plan de vol détaillé (lecture) ═══ */
-function etapeStateClient(n){var ci=T.etapeIndex(D.etape),ei=T.etapeIndex(n);if(D.statut==='cloture')return 'done';if(ei<ci)return 'done';if(ei===ci)return 'active';return 'locked';}
-var pvBlocOpen=null; // clé du bloc ouvert par défaut, calculée à la première ouverture
-function pvDefaultOpenKey(){
-  var ab=activeBloc();
-  if(D.statut==='cloture')return '3';
-  return ab?String(ab.id):'amont';
-}
-function toggleBloc(key){
-  if(pvBlocOpen===null)pvBlocOpen=pvDefaultOpenKey();
-  pvBlocOpen=(pvBlocOpen===key)?null:key;
-  renderPVDetail();
-}
-function renderPVDetail(){
-  if(pvBlocOpen===null)pvBlocOpen=pvDefaultOpenKey();
-  var amont=T.PIPELINE.filter(function(e){return e.bloc===0;});
-  var amontOpen=pvBlocOpen==='amont';
-  var amontHtml='<div class="pv-bloc'+(amontOpen?' open':' closed')+'" style="border-color:#94A3B855">'+
-    '<div class="pv-bloc-head" onclick="toggleBloc(\'amont\')"><span class="pv-bloc-badge" style="background:#94A3B8">Amont</span><span class="pv-bloc-title">Conseil Flash</span><span class="pv-bloc-etapes">offert</span><span class="pv-bloc-chevron">'+(amontOpen?'▾':'▸')+'</span></div>'+
-    '<div class="pv-bloc-body">'+amont.map(function(e){return pvEtapeRow(e.n);}).join('')+'</div></div>';
-  var blocsHtml=T.BLOCS.map(function(b){
-    var open=pvBlocOpen===String(b.id);
-    return '<div class="pv-bloc'+(open?' open':' closed')+'" style="border-color:'+b.color+'55">'+
-      '<div class="pv-bloc-head" onclick="toggleBloc(\''+b.id+'\')"><span class="pv-bloc-badge" style="background:'+b.color+'">Bloc '+b.id+'</span><span class="pv-bloc-title">'+b.title+'</span><span class="pv-bloc-etapes">étapes '+b.etapes.join(' · ')+'</span><span class="pv-bloc-chevron">'+(open?'▾':'▸')+'</span></div>'+
-      '<div class="pv-bloc-body">'+b.etapes.map(pvEtapeRow).join('')+'</div></div>';
-  }).join('');
-  document.getElementById('pv-detail').innerHTML=amontHtml+blocsHtml;
-}
-/* Descriptifs réécrits pour le client sur certaines étapes (le champ e.desc
-   partagé avec l'outil mandataire reste inchangé — ceci est un habillage
-   propre à l'espace client, pas une nouvelle source de vérité). */
-var CLIENT_DESC_OVERRIDE={
-  '06':"Nous sommes courtier en travaux, pas maître d'œuvre : nous sélectionnons et mettons en concurrence des artisans qualifiés (RGE), négocions les devis et coordonnons leur intervention pour vous. Vous restez seul décisionnaire et réglez chaque artisan directement — notre rôle est de vous faire gagner du temps et de sécuriser chaque choix."
-};
-function pvEtapeRow(n){
-  var e=T.etape(n),state=etapeStateClient(n);
-  var desc=CLIENT_DESC_OVERRIDE[n]||e.desc;
-  var dotCol=state==='done'?'var(--green)':state==='active'?'var(--orange)':'var(--t3)';
-  var tag=state==='done'?'<span class="pv-etag" style="background:var(--gl);color:var(--gd)">Terminé</span>':state==='active'?'<span class="pv-etag" style="background:var(--ol);color:var(--od)">En cours</span>':'<span class="pv-etag" style="background:var(--bg);color:var(--t3);border:1px solid var(--border)">À venir</span>';
-  return '<div class="pv-etape"><div class="pv-edot" style="background:'+dotCol+'">'+(state==='done'?'✓':'○')+'</div>'+
-    '<div style="flex:1"><div style="display:flex;align-items:center;flex-wrap:wrap"><span class="pv-etitle">'+e.client+'</span>'+tag+'</div><div class="pv-edesc">'+desc+'</div></div></div>';
-}
-
-/* ═══ MON SUIVI — budget enrichi ═══ */
-function factDue(){return (D.factures||[]).find(function(f){return f.statut==='emise';});}
-function renderFactDue(){
-  var f=factDue(),el=document.getElementById('fact-due-wrap');
-  if(!f){el.innerHTML='';return;}
-  var lbl=f.kind==='audit'?'Bloc 1 · Audit':f.kind==='acompte'?'Bloc 2 · Acompte':'Bloc 3 · Solde final';
-  el.innerHTML='<div class="fact-due-card"><span style="font-size:22px">🧾</span>'+
-    '<div style="flex:1"><div style="font-size:12px;font-weight:800;color:var(--od);margin-bottom:3px">Une facture est à régler</div>'+
-    '<div style="font-size:12px;color:var(--od);line-height:1.5">'+lbl+' — <strong>'+(+f.montant||0).toLocaleString('fr-FR')+' € TTC</strong>, émise le '+new Date(f.ts).toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'})+'.</div></div>'+
-    '<button class="j-action-btn" style="margin-top:0" onclick="alert(\'Redirection vers le paiement sécurisé (démo).\')">💳 Régler '+(+f.montant||0).toLocaleString('fr-FR')+' €</button></div>';
-}
-function budgetRow(lbl,montant,statut,dateStr){
-  var badge={paid:'<span class="budget-statut bs-paid">✓ Payé</span>',pending:'<span class="budget-statut bs-pending">⏳ En cours</span>',due:'<span class="budget-statut bs-due">🧾 À régler</span>',future:'<span class="budget-statut bs-future">À venir</span>',blocked:'<span class="budget-statut bs-blocked">Bloqué (loi)</span>'}[statut]||'';
-  return '<div class="budget-row"><span>'+lbl+(dateStr?' <span style="color:var(--t3);font-size:10px">· '+dateStr+'</span>':'')+'</span><div style="display:flex;align-items:center;gap:6px"><span style="font-weight:600">'+montant+'</span>'+badge+'</div></div>';
-}
-function fdate(ts){return ts?new Date(ts).toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'}):'';}
-function renderBudget(){
-  var t=T.type(D.type);var html='<div class="budget-label">Honoraires Timonia</div>';
-  var f1=(D.factures||[]).find(function(f){return f.kind==='audit';});
-  html+=budgetRow('Bloc 1 · Audit ('+t.short.replace(/^[^ ]+ /,'')+')',t.bloc1.toLocaleString('fr-FR')+' €',f1?(f1.statut==='payee'?'paid':'due'):'pending',f1?fdate(f1.ts):'');
-  if(t.acompte_autorise){
-    var f2=(D.factures||[]).find(function(f){return f.kind==='acompte';});
-    if(f2) html+=budgetRow('Bloc 2 · Acompte travaux',f2.montant.toLocaleString('fr-FR')+' €',f2.statut==='payee'?'paid':'due',fdate(f2.ts));
-    else html+=budgetRow('Bloc 2 · Acompte travaux','sur demande','future');
-  } else {
-    html+=budgetRow('Bloc 2 · Acompte','0 € — non applicable','blocked');
-  }
-  var v=T.variableEtape03(D.type);var reel=v?D.variables[v.key+'Reel']:null;
-  var f3=(D.factures||[]).find(function(f){return f.kind==='solde';});
-  var soldeTxt,soldeStatut,soldeDate='';
-  if(f3){soldeTxt=(+f3.montant||0).toLocaleString('fr-FR')+' €';soldeStatut=f3.statut==='payee'?'paid':'due';soldeDate=fdate(f3.ts);}
-  else if(t.solde.mode==='forfait'){soldeTxt=t.solde.montant.toLocaleString('fr-FR')+' €';soldeStatut='future';}
-  else if(reel!=null){var ac=(D.factures||[]).filter(function(f){return f.kind==='acompte';}).reduce(function(s,f){return s+(+f.montant||0);},0);soldeTxt=T.soldeBloc3(D.type,reel,ac).toLocaleString('fr-FR')+' €';soldeStatut='future';}
-  else{soldeTxt='calculé à la livraison';soldeStatut='future';}
-  html+=budgetRow('Bloc 3 · Solde final',soldeTxt,soldeStatut,soldeDate);
-  html+='<div style="font-size:10px;color:var(--t3);margin-top:6px;line-height:1.5">'+t.solde.label+'. Tous les prix sont TTC.</div>';
-
-  if(D.travauxArtisans&&D.travauxArtisans.length){
-    html+='<div class="budget-label">Travaux (paiement direct aux artisans)</div>';
-    var tot=0;D.travauxArtisans.forEach(function(a){tot+=a.montant;html+=budgetRow(a.nom,a.montant.toLocaleString('fr-FR')+' €','pending');});
-    html+='<div class="budget-row" style="font-weight:800"><span>Total travaux</span><span>'+tot.toLocaleString('fr-FR')+' €</span></div>';
-    html+='<div style="font-size:10px;color:var(--t3);margin-top:6px;line-height:1.5">Timonia est courtier en travaux : les artisans sont payés directement par vous. La réception des travaux se fait par vos soins.</div>';
-  }
-
-  var hist=(D.factures||[]).slice().sort(function(a,b){return new Date(b.ts)-new Date(a.ts);});
-  if(hist.length){
-    html+='<div class="budget-label">Historique de facturation</div>';
-    hist.forEach(function(f){
-      var lbl=f.kind==='audit'?'Bloc 1 · Audit':f.kind==='acompte'?'Bloc 2 · Acompte':'Bloc 3 · Solde';
-      html+=budgetRow(lbl,(+f.montant||0).toLocaleString('fr-FR')+' € TTC',f.statut==='payee'?'paid':'due',fdate(f.statut==='payee'?(f.ts_paid||f.ts):f.ts));
+/* ═══ SIGNAUX AUTOMATIQUES (managers virtuels v1 — 100 % dérivés) ═══ */
+function computeSignaux(){
+  var out=[];
+  PROJETS.forEach(function(d){
+    if(d.statut!=='en_cours')return;
+    var t=T.type(d.type);
+    if(d.etape==='01')out.push({lvl:'ko',txt:'<strong>'+d.ref+'</strong> ('+t.label+') — lead en étape 01 : contact à prendre sous 24 h.'});
+    if(d.etape==='03')out.push({lvl:'warn',txt:'<strong>'+d.ref+'</strong> ('+t.label+') — devis d\u2019audit envoyé : relancer le client pour validation.'});
+    (d.factures||[]).forEach(function(f){
+      if(f.statut==='emise')out.push({lvl:'warn',txt:'<strong>'+d.ref+'</strong> — facture '+f.kind+' de '+euro(f.montant)+' émise, non payée : relance à prévoir.'});
     });
-  }
-  document.getElementById('budget-content').innerHTML=html;
-}
-
-/* ═══ JOURNAL (Mon dossier) ═══ */
-function renderJournal(){
-  var events=(D.journal||[]).slice();
-  document.getElementById('journal').innerHTML=events.length?events.map(function(j){
-    var dotCls=j.type==='done'?'j-done':j.type==='active'?'j-active':'j-wait';var dotTxt=j.type==='done'?'✓':j.type==='active'?'⚡':'○';
-    return '<div class="j-item"><div class="j-dot '+dotCls+'">'+dotTxt+'</div><div class="j-body"><div class="j-date">'+j.date+'</div><div class="j-text">'+j.text+'</div></div></div>';
-  }).join(''):'<div style="font-size:12px;color:var(--t3)">Votre journal apparaîtra ici au fil de l\'avancement.</div>';
-}
-
-/* ═══ CARNET ═══ */
-function renderPhotos(){
-  var el=document.getElementById('photo-grid');
-  var seed=(D.photos||[]).map(function(p){return {img:null,caption:p.caption,author:'Équipe Timonia',role:'',date:p.date,ts:null};});
-  var stored=photoStore().slice().sort(function(a,b){return new Date(b.ts)-new Date(a.ts);});
-  var all=stored.concat(seed);
-  el.innerHTML=all.length?all.map(photoCardHtml).join(''):'<div style="text-align:center;padding:40px;color:var(--t3);grid-column:1/-1">Pas encore de photos.</div>';
-}
-function photoStore(){try{return JSON.parse(localStorage.getItem('tim_photos_'+D.id))||[];}catch(e){return[];}}
-function photoSave(a){try{localStorage.setItem('tim_photos_'+D.id,JSON.stringify(a));return true;}catch(e){alert('Stockage plein — image trop lourde pour la démo.');return false;}}
-function photoWhen(ts){var d=new Date(ts);return d.toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'})+' à '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});}
-function photoCardHtml(p){
-  var imgHtml=p.img?'<img src="'+p.img+'" style="width:100%;height:130px;object-fit:cover;border-bottom:1px solid var(--border)">':'<div class="photo-img">📷</div>';
-  var when=p.ts?('🕒 '+photoWhen(p.ts)):(p.date||'');
-  var who=p.author?('<div style="font-size:10px;color:var(--t2);font-weight:700;margin-bottom:2px">'+p.author+(p.role?' · <span style="font-weight:600;color:var(--t3)">'+p.role+'</span>':'')+'</div>'):'';
-  var del=p.id?'<button style="position:absolute;top:6px;right:6px;background:rgba(255,255,255,.9);border:none;border-radius:6px;padding:2px 6px;cursor:pointer;color:var(--t3)" title="Supprimer" onclick="delPhoto(\''+p.id+'\')">✕</button>':'';
-  return '<div class="photo-card" style="position:relative">'+del+imgHtml+'<div class="photo-meta"><div class="photo-date">'+when+'</div>'+who+'<div class="photo-caption">'+(p.caption||'')+'</div></div></div>';
-}
-var photoPickData=null;
-function onPhotoPick(input){var f=input.files&&input.files[0];if(!f)return;if(!/^image\//.test(f.type)){alert('Choisissez un fichier image.');return;}var r=new FileReader();r.onload=function(){photoPickData=r.result;document.getElementById('photo-preview').innerHTML='<img src="'+r.result+'" style="max-width:100%;max-height:170px;border-radius:8px">';};r.readAsDataURL(f);}
-function openPhotoAdd(){photoPickData=null;document.getElementById('photo-preview').innerHTML='';document.getElementById('photo-caption').value='';var fi=document.getElementById('photo-file');if(fi)fi.value='';openModal('photoModal');}
-function confirmPhotoAdd(){
-  if(!photoPickData){alert('Choisissez une photo.');return;}
-  var arr=photoStore();
-  arr.push({id:'ph-'+Date.now(),img:photoPickData,caption:document.getElementById('photo-caption').value.trim(),author:D.nom||D.email,role:'Client',ts:new Date().toISOString()});
-  if(!photoSave(arr))return;
-  closeModal('photoModal');renderPhotos();
-}
-function delPhoto(id){if(!confirm('Supprimer cette photo ?'))return;var arr=photoStore().filter(function(x){return x.id!==id;});photoSave(arr);renderPhotos();}
-
-/* ═══ DOCUMENTS ═══ */
-function renderDocs(){
-  var docs=D.docs||[];
-  document.getElementById('doc-list').innerHTML=docs.length?docs.map(function(d){
-    var urgent=d.cat==='valid'&&d.status==='attente';
-    var metaTxt=d.cat==='valid'?(d.status==='valide'?'Validé':d.status==='refuse'?'Refusé':'Votre validation requise'):'Informatif';
-    return '<div class="doc-item" '+(urgent?'style="border-color:var(--orange);background:var(--ol)"':'')+'><div class="doc-icon" '+(urgent?'style="background:var(--ol)"':'')+'>'+(d.type==='PDF'?'📄':'📋')+'</div><div style="flex:1"><div style="font-size:12px;font-weight:700;'+(urgent?'color:var(--od)':'')+'">'+d.name+'</div><div style="font-size:10px;color:var(--t3)">'+metaTxt+'</div></div><a href="https://drive.google.com" target="_blank" class="doc-btn"'+(urgent?' style="background:var(--orange);color:#fff;border-color:var(--orange)"':'')+'>'+(urgent?'Consulter →':'Ouvrir →')+'</a></div>';
-  }).join(''):'<div style="text-align:center;padding:30px;color:var(--t3)">Aucun document pour le moment.</div>';
-}
-
-/* ═══ MESSAGES ═══ */
-function renderMessages(){
-  var msgs=D.messages_pub||[];
-  document.getElementById('msg-wrap').innerHTML=msgs.length?msgs.map(function(m){var out=m.from==='client';return '<div class="msg-bubble '+(out?'msg-out':'msg-in')+'"><div class="msg-meta">'+(out?'Vous':m.nom)+' · '+new Date(m.ts).toLocaleDateString('fr-FR',{day:'2-digit',month:'short'})+'</div>'+m.text+'</div>';}).join(''):'<div style="text-align:center;padding:20px;color:var(--t3)">Aucun message pour le moment.</div>';
-}
-function sendMsg(){var inp=document.getElementById('msgInput');var t=inp.value.trim();if(!t)return;D.messages_pub=D.messages_pub||[];D.messages_pub.push({from:'client',nom:'Vous',text:t,ts:new Date().toISOString()});renderMessages();inp.value='';var w=document.getElementById('msg-wrap');w.scrollTop=w.scrollHeight;}
-
-/* ═══ EXPERT MODAL ═══ */
-function renderExpert(){
-  var trig=(D.equipe&&D.equipe.front)||(D.equipe&&D.equipe.sale);
-  var m=MANDATAIRES.find(function(x){return x.trig===trig;})||MANDATAIRES[0];
-  document.getElementById('expert-body').innerHTML='<div style="display:flex;align-items:center;gap:12px;padding:12px;background:var(--bg);border-radius:var(--r);margin-bottom:16px"><div style="width:42px;height:42px;border-radius:50%;background:'+m.color+';display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:#fff">'+m.trig.slice(0,2)+'</div><div><div style="font-size:13px;font-weight:700">'+m.nom+'</div><div style="font-size:11px;color:var(--t3)">'+(CLIENT_ROLE.front.label)+'</div></div></div><div style="text-align:center;margin-bottom:16px"><div style="font-size:20px;font-weight:700">'+(m.tel||'—')+'</div></div>'+(m.tel?'<a href="tel:'+m.tel.replace(/\s/g,'')+'" style="display:block;text-align:center;padding:10px;border-radius:var(--r);background:var(--green);color:#fff;font-size:13px;font-weight:700;text-decoration:none">📞 Appeler</a>':'');
-}
-
-/* ═══ ACTIONS ═══ */
-/* ═══ VALIDATION CLIENT = ÉVÉNEMENT RÉEL ═══
-   Le clic écrit l'événement dans le bus (T.EVENTS). Le dossier mandataire
-   le lit et fait avancer le pipeline automatiquement (T.TRANSITIONS).
-   Le client est littéralement le manager du process. */
-function validerDevis(){
-  var a=currentAction();var now=new Date();
-  var evt=(a&&a.kind==='audit_valide')?'client.audit_valide':'client.devis_valide';
-  T.EVENTS.push(D.id, evt, {by:'client', canal:'monespace'});
-  alert('✅ Validation enregistrée !\nHorodatage : '+now.toLocaleDateString('fr-FR')+' à '+now.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})+'\n\nVotre dossier avance automatiquement — votre équipe est notifiée.');
-  rejouerEvenements();renderBoot();
-}
-/* Rejeu : reconstruit l'étape depuis le journal d'événements (source de vérité) */
-function rejouerEvenements(){
-  T.EVENTS.list(D.id).forEach(function(ev){
-    var tr=T.transitionFrom(D.etape);
-    if(!tr||tr.event!==ev.event)return;
-    if(D.etape==='05'){var v=T.variableEtape03(D.type);if(v&&D.variables[v.key]==null)return;}
-    var idx=T.etapeIndex(D.etape);
-    D.etape=T.PIPELINE[idx+1].n;
-    if(D.etape===T.PIPELINE[T.PIPELINE.length-1].n)D.statut='cloture';
+    var v=T.variableEtape03(d.type);
+    if(d.etape==='05'&&v&&(d.variables[v.key]==null))out.push({lvl:'ko',txt:'<strong>'+d.ref+'</strong> — variable « '+v.label+' » non saisie : blocage du passage en mise en œuvre.'});
   });
+  return out;
 }
-function openTab(id,btn){document.querySelectorAll('.tsec').forEach(function(el){el.classList.remove('active');});document.querySelectorAll('.tab').forEach(function(el){el.classList.remove('active');});document.getElementById('tsec-'+id).classList.add('active');if(btn)btn.classList.add('active');}
-function openModal(id){document.getElementById(id).classList.add('open');}
-function closeModal(id){document.getElementById(id).classList.remove('open');}
+function renderSignaux(){
+  var sig=computeSignaux();
+  document.getElementById('signaux').innerHTML=sig.length
+    ?sig.map(function(s){return '<div class="sig sig-'+s.lvl+'"><span>'+(s.lvl==='ko'?'🔴':'🟡')+'</span><div>'+s.txt+'</div></div>';}).join('')
+    :'<div class="sig sig-ok"><span>🟢</span><div>Aucune action en retard sur ce client. Tout est sous contrôle.</div></div>';
+}
+
+/* ═══ PROJETS ═══ */
+function renderProjets(){
+  document.getElementById('proj-count').textContent=PROJETS.length+' dossier'+(PROJETS.length>1?'s':'');
+  document.getElementById('projets').innerHTML=PROJETS.slice().sort(function(a,b){return b.created<a.created?-1:1;}).map(function(d){
+    var t=T.type(d.type);var e=T.etape(d.etape);var idx=T.etapeIndex(d.etape);
+    var pct=Math.round((idx+1)/T.PIPELINE.length*100);
+    var fact=(d.factures||[]).reduce(function(s,f){return s+(+f.montant||0);},0);
+    var statutBadge=d.statut==='cloture'?'<span class="badge" style="background:var(--gl);color:var(--gd)">Clôturé</span>'
+      :d.statut==='abandonne'?'<span class="badge" style="background:var(--rl);color:var(--rd)">Abandonné</span>'
+      :'<span class="badge" style="background:'+t.color+'1A;color:'+t.color+'">En cours</span>';
+    var eq=['lead','sale','front','back'].map(function(r){var m=mand(d.equipe[r]);return m?'<span class="eq-av" title="'+m.nom+' ('+r+')" style="background:'+m.color+'">'+m.trig+'</span>':'';}).join('');
+    return '<div class="proj"><div class="proj-top"><span class="proj-ico">'+t.icon+'</span><span class="proj-name">'+t.label+'</span><span class="dh-ref">'+d.ref+'</span>'+statutBadge+'</div>'
+      +'<div class="proj-etape">Étape '+d.etape+' — '+(e?e.mand:'')+'</div>'
+      +'<div class="pbar"><div style="width:'+pct+'%"></div></div>'
+      +'<div class="proj-foot">'+eq+'<span style="font-size:11px;color:var(--t2);font-weight:700;margin-left:auto">Facturé : '+euro(fact)+'</span>'
+      +'<a class="btn" style="text-decoration:none;padding:5px 11px;font-size:11px" href="dossier-mandataire-AUTONOME (v2.3 moteur).html?id='+d.id+'">Ouvrir →</a></div></div>';
+  }).join('')||'<div style="color:var(--t3);font-size:12px">Aucun dossier.</div>';
+}
+
+/* ═══ FINANCES (cumul tous dossiers — dérivé) ═══ */
+function renderFin(){
+  var tot=0,enc=0,att=0;
+  PROJETS.forEach(function(d){(d.factures||[]).forEach(function(f){var m=+f.montant||0;tot+=m;if(f.statut==='payee')enc+=m;else att+=m;});});
+  document.getElementById('fin').innerHTML=
+    '<div class="fin-big" style="color:var(--gd);margin-bottom:8px">'+euro(tot)+'<span style="font-size:11px;color:var(--t3);font-weight:600"> facturé (vie du client)</span></div>'
+    +'<div class="fin-row"><span>Encaissé</span><span style="font-weight:700;color:var(--gd)">'+euro(enc)+'</span></div>'
+    +'<div class="fin-row"><span>En attente</span><span style="font-weight:700;color:'+(att>0?'var(--yd)':'var(--t3)')+'">'+euro(att)+'</span></div>'
+    +'<div class="fin-row"><span>Projets facturés</span><span style="font-weight:700">'+PROJETS.filter(function(d){return (d.factures||[]).length;}).length+' / '+PROJETS.length+'</span></div>';
+}
+
+/* ═══ INTERLOCUTEUR ═══ */
+function renderOwner(){
+  var m=mand(ownerTrig);
+  document.getElementById('owner').innerHTML=(m
+    ?'<div class="owner-row"><span class="eq-av" style="width:34px;height:34px;font-size:11px;background:'+m.color+'">'+m.trig+'</span><div style="flex:1"><div style="font-size:13px;font-weight:800">'+m.nom+'</div><div style="font-size:10px;color:var(--t3)">'+(m.spec?m.spec.toUpperCase()+' · ':'')+(m.zone||'')+'</div></div></div>'
+    :'<div style="font-size:12px;color:var(--rd);font-weight:700">Aucun interlocuteur assigné.</div>')
+    +'<button class="btn" style="margin-top:9px;width:100%;justify-content:center" onclick="openChange()">🔁 Changer d\u2019interlocuteur</button>';
+}
+function openChange(){
+  document.getElementById('mand-list').innerHTML=TDATA.MANDATAIRES.filter(function(m){return m.actif&&m.trig&&m.trig!==ownerTrig;}).map(function(m){
+    return '<div class="mand-opt" onclick="doChange(\''+m.trig+'\')"><span class="eq-av" style="width:30px;height:30px;font-size:10px;background:'+m.color+'">'+m.trig+'</span><div><div style="font-size:12px;font-weight:800">'+m.nom+'</div><div style="font-size:10px;color:var(--t3)">'+(m.spec?m.spec.toUpperCase()+' · ':'')+(m.zone||'')+'</div></div></div>';
+  }).join('');
+  document.getElementById('moChange').classList.add('open');
+}
+function doChange(trig){
+  var old=mand(ownerTrig);var neu=mand(trig);
+  ownerTrig=trig;save('owner',trig);
+  logRel('🔁 Interlocuteur principal : <strong>'+(old?old.nom:'—')+'</strong> → <strong>'+neu.nom+'</strong>.');
+  closeMo();renderOwner();
+}
+function closeMo(){document.getElementById('moChange').classList.remove('open');}
+
+/* ═══ JOURNAL RELATION (événements structurés — base IA future) ═══ */
+function logRel(html){
+  relJournal.unshift({ts:new Date().toISOString(),html:html});
+  save('journal',relJournal);renderRelJournal();
+}
+function renderRelJournal(){
+  document.getElementById('rel-journal').innerHTML=relJournal.length
+    ?relJournal.map(function(j){var d=new Date(j.ts);return '<div class="j-item"><div class="j-dot">•</div><div><div class="j-date">'+d.toLocaleDateString('fr-FR')+' '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})+'</div><div class="j-text">'+j.html+'</div></div></div>';}).join('')
+    :'<div style="font-size:12px;color:var(--t3)">Aucun événement. Les changements d\u2019interlocuteur et de satisfaction seront journalisés ici.</div>';
+}
 
 /* BOOT */
-function renderBoot(){
-  renderFrise();renderCTA();renderAction();renderJournal();
-  renderSit();renderObj();renderEquipe();renderType();renderClient();renderBien();
-  renderPVDetail();renderFactDue();renderBudget();
-  renderPhotos();renderDocs();renderMessages();renderExpert();
-}
-rejouerEvenements(); /* les événements (validations passées) reconstruisent l'étape */
-renderBoot();renderPswitch();
-if(CLIENT){document.getElementById('navAv').textContent=(CLIENT.prenom[0]||'')+(CLIENT.nom.split(' ').pop()[0]||'');document.getElementById('navName').textContent=CLIENT.prenom+' '+CLIENT.nom.split(' ').pop();}
+if(!CLIENT){document.querySelector('.page').innerHTML='<div class="card">Client introuvable ('+CID+').</div>';}
+else{renderDh();renderSatBanner();renderSignaux();renderProjets();renderFin();renderOwner();renderRelJournal();}
 </script>
 </body>
 </html>
